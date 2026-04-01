@@ -1,0 +1,65 @@
+# -------------------------
+# Common
+# -------------------------
+.DS_Store
+Thumbs.db
+*.log
+*.pem
+.vscode/
+.idea/
+
+# -------------------------
+# Client - Next.js / React
+# -------------------------
+client/node_modules/
+client/.next/
+client/out/
+client/build/
+client/coverage/
+client/.pnp
+client/.pnp.*
+client/.yarn/*
+!client/.yarn/patches
+!client/.yarn/plugins
+!client/.yarn/releases
+!client/.yarn/versions
+client/.vercel
+client/*.tsbuildinfo
+
+# client env
+client/.env
+client/.env.local
+client/.env.development.local
+client/.env.test.local
+client/.env.production.local
+
+# -------------------------
+# Server - Laravel / PHP
+# -------------------------
+server/vendor/
+server/node_modules/
+server/.env
+server/.env.backup
+server/.env.production
+server/.phpunit.result.cache
+
+server/public/hot
+server/public/storage
+
+server/storage/logs/*
+server/storage/framework/cache/*
+server/storage/framework/sessions/*
+server/storage/framework/views/*
+server/storage/debugbar/*
+server/bootstrap/cache/*.php
+
+# Keep folder placeholders
+!server/storage/logs/.gitignore
+!server/storage/framework/cache/.gitignore
+!server/storage/framework/sessions/.gitignore
+!server/storage/framework/views/.gitignore
+!server/storage/debugbar/.gitignore
+
+# Optional uploads ignore if needed
+# server/storage/app/public/*
+# !server/storage/app/public/.gitignore
