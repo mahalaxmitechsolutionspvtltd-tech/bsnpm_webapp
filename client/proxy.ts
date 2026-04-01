@@ -44,6 +44,6 @@ export const config = {
         "/admin/login",
         "/sanchalak/login",
         "/admin/:path*",
-        "/sanchalak/:path*"
-    ]
+        "/sanchalak/:path*",
+    ],
 }
