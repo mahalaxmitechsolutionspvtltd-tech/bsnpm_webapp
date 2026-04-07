@@ -8,6 +8,7 @@ use App\Models\DepositApplication;
 use App\Models\DepositInstallment;
 use App\Models\DepositRenewalApplication;
 use App\Models\DepositScheme;
+use App\Models\TrialBalance;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -136,7 +137,7 @@ class DepositeController extends Controller
         );
     }
 
-    // get deposite apllication
+
     public function getDepositeApplications()
     {
         try {
@@ -160,8 +161,39 @@ class DepositeController extends Controller
                 ->get()
                 ->groupBy('member_id');
 
-            $finalData = $applications->map(function ($application) use ($accountManagementRows) {
+            $buildProofFileUrl = function ($proofFile) {
+                if (empty($proofFile)) {
+                    return null;
+                }
 
+                $proofFile = trim((string) $proofFile);
+
+                if ($proofFile === '') {
+                    return null;
+                }
+
+                if (
+                    str_starts_with($proofFile, 'http://') ||
+                    str_starts_with($proofFile, 'https://')
+                ) {
+                    return $proofFile;
+                }
+
+                $proofFile = str_replace('\\', '/', $proofFile);
+                $proofFile = preg_replace('#/+#', '/', $proofFile);
+
+                $fileName = basename($proofFile);
+
+                if (empty($fileName) || $fileName === '.' || $fileName === '..') {
+                    return null;
+                }
+
+                $baseUrl = rtrim((string) env('PAYMENT_PROOF_BASE_URL', env('APP_URL')), '/');
+
+                return $baseUrl . '/payment_proofs/' . $fileName;
+            };
+
+            $finalData = $applications->map(function ($application) use ($accountManagementRows, $buildProofFileUrl) {
                 $memberAccounts = $accountManagementRows->get($application->member_id, collect());
 
                 $matchedApplicationJson = null;
@@ -180,13 +212,11 @@ class DepositeController extends Controller
                             isset($jsonItem['application no']) &&
                             trim((string) $jsonItem['application no']) === trim((string) $application->application_no)
                         ) {
-                            // First match घे (backup म्हणून)
                             if ($matchedAccountRow === null) {
                                 $matchedApplicationJson = $jsonItem;
                                 $matchedAccountRow = $accountRow;
                             }
 
-                            // proof_file असलेला row मिळाला तर override कर आणि थांब
                             if (!empty($accountRow->proof_file)) {
                                 $matchedApplicationJson = $jsonItem;
                                 $matchedAccountRow = $accountRow;
@@ -221,7 +251,10 @@ class DepositeController extends Controller
                     'payment_details' => $matchedAccountRow ? [
                         'id' => $matchedAccountRow->id,
                         'payment_mode' => $matchedAccountRow->payment_mode,
-                        'proof_file' => $matchedAccountRow->proof_file,
+                        'proof_file' => $buildProofFileUrl($matchedAccountRow->proof_file),
+                        'proof_file_name' => !empty($matchedAccountRow->proof_file)
+                            ? basename(str_replace('\\', '/', (string) $matchedAccountRow->proof_file))
+                            : null,
                         'reference_trn' => $matchedAccountRow->reference_trn,
                         'total_amount' => $matchedAccountRow->total_amount,
                         'date_of_payment' => $matchedAccountRow->date_of_payment,
@@ -235,7 +268,6 @@ class DepositeController extends Controller
             });
 
             return ApiResponse::success('Applications fetched successfully', $finalData);
-
         } catch (\Exception $e) {
             return ApiResponse::error(
                 'Failed to fetch applications',
@@ -244,6 +276,8 @@ class DepositeController extends Controller
             );
         }
     }
+
+    // 
     public function updateDepositeApplicationStatus(Request $request, $application_id)
     {
         $validator = Validator::make($request->all(), [
@@ -265,32 +299,146 @@ class DepositeController extends Controller
             return ApiResponse::error('Application not found', null, 404);
         }
 
-        $updateData = [
-            'status' => $request->status,
-            'updated_by' => $request->updated_by,
-            'updated_at' => now(),
-        ];
+        DB::beginTransaction();
 
-        if ($request->status === 'withdrawn') {
-            $updateData['is_withdrawal'] = 1;
-            $updateData['is_active'] = 0;
+        try {
+            $updateData = [
+                'status' => $request->status,
+                'updated_by' => $request->updated_by,
+                'updated_at' => now(),
+            ];
+
+            if ($request->status === 'withdrawn') {
+                $updateData['is_withdrawal'] = 1;
+                $updateData['is_active'] = 0;
+            }
+
+            if (in_array($request->status, ['active', 'inprogress'], true)) {
+                $updateData['is_active'] = 1;
+            }
+
+            if (in_array($request->status, ['rejected', 'closed', 'completed'], true)) {
+                $updateData['is_active'] = 0;
+            }
+
+            $application->update($updateData);
+
+            if ($request->status === 'approved') {
+                $applicationNo = trim((string) $application->application_no);
+                $memberId = trim((string) $application->member_id);
+
+                $accountManagementRecords = AccountManagement::where('member_id', $memberId)->get();
+
+                foreach ($accountManagementRecords as $accountRecord) {
+                    $applicationsJson = $accountRecord->applications_json;
+
+                    if (!is_array($applicationsJson) || empty($applicationsJson)) {
+                        continue;
+                    }
+
+                    $hasMatch = false;
+                    $matchedPaymentMode = null;
+                    $matchedTitle = null;
+
+                    foreach ($applicationsJson as $row) {
+                        if (!is_array($row)) {
+                            continue;
+                        }
+
+                        $rowApplicationNo = null;
+                        $applyPayment = false;
+
+                        if (array_key_exists('application_no', $row)) {
+                            $rowApplicationNo = $row['application_no'];
+                        } elseif (array_key_exists('application no', $row)) {
+                            $rowApplicationNo = $row['application no'];
+                        } elseif (array_key_exists('applicationNo', $row)) {
+                            $rowApplicationNo = $row['applicationNo'];
+                        }
+
+                        if (array_key_exists('apply payment', $row)) {
+                            $value = $row['apply payment'];
+                            if (is_bool($value)) {
+                                $applyPayment = $value;
+                            } else {
+                                $normalized = strtolower(trim((string) $value));
+                                $applyPayment = in_array($normalized, ['true', '1', 'yes'], true);
+                            }
+                        } elseif (array_key_exists('apply_payment', $row)) {
+                            $value = $row['apply_payment'];
+                            if (is_bool($value)) {
+                                $applyPayment = $value;
+                            } else {
+                                $normalized = strtolower(trim((string) $value));
+                                $applyPayment = in_array($normalized, ['true', '1', 'yes'], true);
+                            }
+                        } elseif (array_key_exists('applyPayment', $row)) {
+                            $value = $row['applyPayment'];
+                            if (is_bool($value)) {
+                                $applyPayment = $value;
+                            } else {
+                                $normalized = strtolower(trim((string) $value));
+                                $applyPayment = in_array($normalized, ['true', '1', 'yes'], true);
+                            }
+                        }
+
+                        if (trim((string) $rowApplicationNo) === $applicationNo && $applyPayment === true) {
+                            $hasMatch = true;
+                            $matchedPaymentMode = $accountRecord->payment_mode ?? 'online';
+
+                            if (array_key_exists('title', $row) && !empty(trim((string) $row['title']))) {
+                                $matchedTitle = trim((string) $row['title']);
+                            } elseif (array_key_exists('scheme_name', $row) && !empty(trim((string) $row['scheme_name']))) {
+                                $matchedTitle = trim((string) $row['scheme_name']);
+                            } elseif (array_key_exists('scheme name', $row) && !empty(trim((string) $row['scheme name']))) {
+                                $matchedTitle = trim((string) $row['scheme name']);
+                            } else {
+                                $matchedTitle = (string) ($application->scheme_name ?? 'Deposit Application');
+                            }
+
+                            break;
+                        }
+                    }
+
+                    if ($hasMatch) {
+                        $accountRecord->update([
+                            'status' => 'approved',
+                            'updated_by' => $request->updated_by,
+                            'updated_at' => now(),
+                        ]);
+
+                        $this->addDepositApplicationToTrialBalance(
+                            (string) $matchedTitle,
+                            $applicationNo,
+                            now(),
+                            (float) ($application->deposit_amount ?? 0),
+                            !empty($matchedPaymentMode) ? (string) $matchedPaymentMode : 'online',
+                            (string) ($request->updated_by ?? '')
+                        );
+
+                        break;
+                    }
+                }
+            }
+
+            DB::commit();
+
+            return ApiResponse::success(
+                'Application status updated successfully',
+                $application->fresh()
+            );
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return ApiResponse::error(
+                'Failed to update application status',
+                ['error' => $e->getMessage()],
+                500
+            );
         }
-
-        if (in_array($request->status, ['active', 'inprogress'])) {
-            $updateData['is_active'] = 1;
-        }
-
-        if (in_array($request->status, ['rejected', 'closed', 'completed'])) {
-            $updateData['is_active'] = 0;
-        }
-
-        $application->update($updateData);
-
-        return ApiResponse::success(
-            'Application status updated successfully',
-            $application->fresh()
-        );
     }
+
+
 
     public function updateApplicationStartDate(Request $request, $application_id)
     {
@@ -692,5 +840,75 @@ class DepositeController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    // TRIAL BALANCE API AND UTIL FUNTIONS
+
+    private function addDepositApplicationToTrialBalance(
+        string $title,
+        string $applicationNo,
+        $date,
+        float $amount,
+        string $mode = 'online',
+        string $createdBy = ''
+    ): void {
+        $transactionDate = Carbon::parse($date);
+        $transactionMonth = (int) $transactionDate->format('n');
+        $transactionYear = (int) $transactionDate->format('Y');
+
+        if ($transactionMonth >= 4) {
+            $financialYearStart = $transactionYear;
+            $financialYearEnd = $transactionYear + 1;
+        } else {
+            $financialYearStart = $transactionYear - 1;
+            $financialYearEnd = $transactionYear;
+        }
+
+        $financialYear = $financialYearStart . '-' . substr((string) $financialYearEnd, -2);
+
+        $trialBalance = TrialBalance::where('financial_year', $financialYear)->first();
+
+        if (!$trialBalance) {
+            throw new \Exception('Trial balance record not found for financial year ' . $financialYear);
+        }
+
+        $creditJson = $trialBalance->credit_json;
+
+        if (!is_array($creditJson)) {
+            $decodedCreditJson = json_decode((string) $creditJson, true);
+            $creditJson = is_array($decodedCreditJson) ? $decodedCreditJson : [];
+        }
+
+        $nextId = 1;
+
+        if (!empty($creditJson)) {
+            $existingIds = [];
+
+            foreach ($creditJson as $creditItem) {
+                if (is_array($creditItem) && isset($creditItem['id']) && is_numeric($creditItem['id'])) {
+                    $existingIds[] = (int) $creditItem['id'];
+                }
+            }
+
+            if (!empty($existingIds)) {
+                $nextId = max($existingIds) + 1;
+            }
+        }
+
+        $creditJson[] = [
+            'id' => $nextId,
+            'title' => $title,
+            'application_no' => $applicationNo,
+            'date' => $transactionDate->format('d-m-Y'),
+            'amount' => (string) $amount,
+            'mode' => $mode,
+            'created_by' => $createdBy,
+        ];
+
+        $trialBalance->update([
+            'credit_json' => $creditJson,
+            'updated_by' => $createdBy,
+            'updated_at' => now(),
+        ]);
     }
 }

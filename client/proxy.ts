@@ -4,23 +4,29 @@ export function proxy(request: NextRequest) {
     const token = request.cookies.get("auth_token")?.value
     const { pathname } = request.nextUrl
 
+    const isDefaultPage = pathname === "/"
+
     const isLoginPage =
         pathname === "/login" ||
         pathname === "/admin/login" ||
         pathname === "/sanchalak/login"
 
     const isAdminRoute =
-        pathname.startsWith("/admin") &&
+        pathname.startsWith("/admin/dashboard") &&
         pathname !== "/admin/login"
 
     const isSanchalakRoute =
-        pathname.startsWith("/sanchalak") &&
+        pathname.startsWith("/sanchalak/dashboard") &&
         pathname !== "/sanchalak/login"
 
     const isProtected = isAdminRoute || isSanchalakRoute
 
+    if (token && isDefaultPage) {
+        return NextResponse.redirect(new URL("/admin/dashboard", request.url))
+    }
+
     if (token && isLoginPage) {
-        return NextResponse.redirect(new URL("/admin", request.url))
+        return NextResponse.redirect(new URL("/admin/dashboard", request.url))
     }
 
     if (!token && isProtected) {
@@ -40,6 +46,7 @@ export function proxy(request: NextRequest) {
 
 export const config = {
     matcher: [
+        "/",
         "/login",
         "/admin/login",
         "/sanchalak/login",

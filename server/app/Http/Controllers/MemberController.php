@@ -8,6 +8,8 @@ use App\Models\Member;
 use App\Models\MemberEmergencyFund;
 use App\Models\MemberJoiningFee;
 use App\Models\MemberShareCapital;
+
+use App\Models\TrialBalance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -23,7 +25,6 @@ class MemberController extends Controller
 
         return ApiResponse::success('Members fetched successfully', $members);
     }
-
     public function createMembers(Request $request)
     {
         $validated = $request->validate([
@@ -88,14 +89,76 @@ class MemberController extends Controller
                 'created_by' => $createdBy,
             ]);
 
+            $joiningFeeDate = now();
+            $joiningFeeAmount = 100.00;
+
+            if ((int) $joiningFeeDate->format('n') >= 4) {
+                $startYear = (int) $joiningFeeDate->format('Y');
+                $endYear = $startYear + 1;
+            } else {
+                $startYear = (int) $joiningFeeDate->format('Y') - 1;
+                $endYear = (int) $joiningFeeDate->format('Y');
+            }
+
+            $financialYear = $startYear . '-' . substr((string) $endYear, -2);
+
             MemberJoiningFee::create([
                 'member_id' => $member->member_id,
                 'member_name' => $member->full_name,
-                'joining_fee_amount' => 100.00,
-                'last_payment_date' => now()->toDateString(),
+                'joining_fee_amount' => $joiningFeeAmount,
+                'last_payment_date' => $joiningFeeDate->toDateString(),
                 'updated_by' => $createdBy,
                 'updated_at' => now(),
             ]);
+
+            $trialBalance = TrialBalance::where('financial_year', $financialYear)->first();
+
+            if (!$trialBalance) {
+                $trialBalance = TrialBalance::create([
+                    'financial_year' => $financialYear,
+                    'opening_balance' => 0,
+                    'cash_in_hand' => 0,
+                    'bank_balance' => 0,
+                    'closing_balance' => 0,
+                    'debit_json' => [],
+                    'credit_json' => [],
+                    'created_by' => $createdBy,
+                    'created_at' => now(),
+                    'updated_by' => $createdBy,
+                    'updated_at' => now(),
+                ]);
+            }
+
+            $creditJson = $trialBalance->credit_json;
+
+            if (!is_array($creditJson)) {
+                $decodedCreditJson = json_decode((string) $creditJson, true);
+                $creditJson = is_array($decodedCreditJson) ? $decodedCreditJson : [];
+            }
+
+            $nextCreditId = 1;
+
+            if (!empty($creditJson)) {
+                $ids = array_map(function ($item) {
+                    return (int) ($item['id'] ?? 0);
+                }, $creditJson);
+
+                $nextCreditId = max($ids) + 1;
+            }
+
+            $creditJson[] = [
+                'id' => $nextCreditId,
+                'title' => 'member joining fee',
+                'date' => $joiningFeeDate->format('d-m-Y'),
+                'amount' => $joiningFeeAmount,
+                'mode' => 'online',
+                'created_by' => $createdBy,
+            ];
+
+            $trialBalance->credit_json = $creditJson;
+            $trialBalance->updated_by = $createdBy;
+            $trialBalance->updated_at = now();
+            $trialBalance->save();
 
             $applications = [];
             $totalAmount = 0.00;
@@ -166,6 +229,17 @@ class MemberController extends Controller
             return ApiResponse::success('Member created successfully', [
                 'member' => $member,
                 'applications_json' => $applications,
+                'joining_fee_trial_balance' => [
+                    'financial_year' => $financialYear,
+                    'credit_json' => [
+                        'id' => $nextCreditId,
+                        'title' => 'member joining fee',
+                        'date' => $joiningFeeDate->format('d-m-Y'),
+                        'amount' => $joiningFeeAmount,
+                        'mode' => 'online',
+                        'created_by' => $createdBy,
+                    ],
+                ],
             ], 201);
         } catch (\Throwable $th) {
             DB::rollBack();
@@ -174,6 +248,21 @@ class MemberController extends Controller
                 'server' => [$th->getMessage()],
             ], 500);
         }
+    }
+
+    private function getFinancialYear($date): string
+    {
+        $date = \Carbon\Carbon::parse($date);
+
+        if ((int) $date->format('n') >= 4) {
+            $startYear = (int) $date->format('Y');
+            $endYear = $startYear + 1;
+        } else {
+            $startYear = (int) $date->format('Y') - 1;
+            $endYear = (int) $date->format('Y');
+        }
+
+        return $startYear . '-' . substr((string) $endYear, -2);
     }
     public function updateStatus(Request $request, $member_id)
     {
@@ -197,5 +286,7 @@ class MemberController extends Controller
         $member->save();
         return ApiResponse::success("Member status updated successfully.", $member, 200);
     }
+
+    
 
 }

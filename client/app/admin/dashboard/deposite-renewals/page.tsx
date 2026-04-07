@@ -18,27 +18,20 @@ import {
     getSortedRowModel,
     useReactTable,
 } from '@tanstack/react-table'
-import { ArrowUpDown, Search } from 'lucide-react'
+import { ArrowUpDown } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { cn } from '@/lib/utils'
 import { getDepositeApplicaionRenewals } from '@/services/depositeHandler'
 import type { DepositRenewalApplication } from '@/types/depositeTypes'
 import ViewRenewals from './View'
-import { Skeleton } from '@/components/ui/skeleton'
 
+import { Skeleton } from '@/components/ui/skeleton'
+import Filter from '@/components/ui/filter'
 
 declare module '@tanstack/react-table' {
     interface ColumnMeta<TData extends RowData, TValue> {
@@ -84,6 +77,13 @@ const statusFilterFn: FilterFn<DepositRenewalApplication> = (row, columnId, filt
     return String(row.getValue(columnId) ?? '').toUpperCase() === String(filterValue).toUpperCase()
 }
 
+const searchFilterFn: FilterFn<DepositRenewalApplication> = (row, columnId, filterValue) => {
+    const search = String(filterValue ?? '').trim().toLowerCase()
+    if (!search) return true
+    const value = String(row.getValue(columnId) ?? '').toLowerCase()
+    return value.includes(search)
+}
+
 const SortableHeader = ({ title, column }: { title: string; column: any }) => (
     <Button
         type="button"
@@ -99,7 +99,6 @@ const SortableHeader = ({ title, column }: { title: string; column: any }) => (
 export default function DepositRenewalApplicationsTable() {
     const [isHydrated, setIsHydrated] = useState(false)
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-    const [globalFilter, setGlobalFilter] = useState('')
     const [sorting, setSorting] = useState<SortingState>([])
 
     const [viewOpen, setViewOpen] = useState(false)
@@ -139,46 +138,63 @@ export default function DepositRenewalApplicationsTable() {
 
     const columns = useMemo<ColumnDef<DepositRenewalApplication>[]>(() => [
         {
+            id: 'search',
+            accessorFn: (row) =>
+                [
+                    row.member_id,
+                    row.member_name,
+                    row.old_application_no,
+                    row.renewal_application_no,
+                ]
+                    .map((value) => String(value ?? '').trim())
+                    .join(' '),
+            header: 'Search',
+            filterFn: searchFilterFn,
+            meta: {
+                filterVariant: 'text',
+            },
+            cell: () => null,
+            enableSorting: false,
+            enableHiding: false,
+        },
+        {
             header: ({ column }) => <SortableHeader title="Renewal No" column={column} />,
             accessorKey: 'renewal_application_no',
             cell: ({ row }) => (
                 <button
                     type="button"
                     onClick={() => handleOpenView(row.original)}
-
                 >
                     {String(row.getValue('renewal_application_no') ?? '-')}
                 </button>
             ),
         },
         {
-            header: 'Old Application no',
+            header: ({ column }) => <SortableHeader title="Old Application no" column={column} />,
             accessorKey: 'old_application_no',
             cell: ({ row }) => (
                 <button
                     type="button"
                     onClick={() => handleOpenView(row.original)}
-
                 >
                     {String(row.getValue('old_application_no') ?? '-')}
                 </button>
             ),
         },
         {
-            header: 'Member Id',
+            header: ({ column }) => <SortableHeader title="Member Id" column={column} />,
             accessorKey: 'member_id',
             cell: ({ row }) => (
                 <button
                     type="button"
                     onClick={() => handleOpenView(row.original)}
-
                 >
                     {String(row.getValue('member_id') ?? '-')}
                 </button>
             ),
         },
         {
-            header: 'Member Name',
+            header: ({ column }) => <SortableHeader title="Member Name" column={column} />,
             accessorKey: 'member_name',
             cell: ({ row }) => (
                 <button
@@ -190,13 +206,12 @@ export default function DepositRenewalApplicationsTable() {
             ),
         },
         {
-            header: 'Scheme Name',
+            header: ({ column }) => <SortableHeader title="Scheme Name" column={column} />,
             accessorKey: 'scheme_name',
             cell: ({ row }) => (
                 <button
                     type="button"
                     onClick={() => handleOpenView(row.original)}
-
                 >
                     {String(row.getValue('scheme_name') ?? '-')}
                 </button>
@@ -209,16 +224,18 @@ export default function DepositRenewalApplicationsTable() {
                 <button
                     type="button"
                     onClick={() => handleOpenView(row.original)}
-
                 >
-                    {formatCurrency(row.getValue('current_deposit_amount') as any)}
+                    {formatCurrency(row.getValue('current_deposit_amount') as string | number | null | undefined)}
                 </button>
             ),
         },
         {
-            header: 'Status',
+            header: ({ column }) => <SortableHeader title="Status" column={column} />,
             accessorKey: 'status',
             filterFn: statusFilterFn,
+            meta: {
+                filterVariant: 'select',
+            },
             cell: ({ row }) => {
                 const status = String(row.getValue('status') ?? 'PENDING').toUpperCase()
                 return (
@@ -238,9 +255,11 @@ export default function DepositRenewalApplicationsTable() {
     const table = useReactTable({
         data: applications,
         columns,
-        state: { columnFilters, globalFilter, sorting },
+        state: {
+            columnFilters,
+            sorting,
+        },
         onColumnFiltersChange: setColumnFilters,
-        onGlobalFilterChange: setGlobalFilter,
         onSortingChange: setSorting,
         getCoreRowModel: getCoreRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
@@ -248,11 +267,6 @@ export default function DepositRenewalApplicationsTable() {
         getFacetedRowModel: getFacetedRowModel(),
         getFacetedUniqueValues: getFacetedUniqueValues(),
         getFacetedMinMaxValues: getFacetedMinMaxValues(),
-        globalFilterFn: (row, _columnId, filterValue) => {
-            const search = String(filterValue ?? '').toLowerCase().trim()
-            if (!search) return true
-            return JSON.stringify(row.original).toLowerCase().includes(search)
-        },
     })
 
     if (!isHydrated) return null
@@ -260,10 +274,13 @@ export default function DepositRenewalApplicationsTable() {
     if (isLoading) {
         return (
             <div className="w-full">
-                <div className="rounded-md ">
+                <div className="rounded-md">
                     <Table>
                         <TableHeader>
                             <TableRow className="bg-muted/50">
+                                <TableHead className="hidden h-10 border-t">
+                                    <Skeleton className="h-4 w-24" />
+                                </TableHead>
                                 <TableHead className="h-10 border-t">
                                     <Skeleton className="h-4 w-24" />
                                 </TableHead>
@@ -282,12 +299,18 @@ export default function DepositRenewalApplicationsTable() {
                                 <TableHead className="h-10 border-t">
                                     <Skeleton className="h-4 w-24" />
                                 </TableHead>
+                                <TableHead className="h-10 border-t">
+                                    <Skeleton className="h-4 w-24" />
+                                </TableHead>
                             </TableRow>
                         </TableHeader>
 
                         <TableBody>
                             {Array.from({ length: 6 }).map((_, index) => (
                                 <TableRow key={index}>
+                                    <TableCell className="hidden">
+                                        <Skeleton className="h-4 w-28" />
+                                    </TableCell>
                                     <TableCell>
                                         <Skeleton className="h-4 w-28" />
                                     </TableCell>
@@ -295,13 +318,16 @@ export default function DepositRenewalApplicationsTable() {
                                         <Skeleton className="h-4 w-full max-w-55" />
                                     </TableCell>
                                     <TableCell>
-                                        <Skeleton className="h-6 w-16 rounded-full" />
-                                    </TableCell>
-                                    <TableCell>
                                         <Skeleton className="h-4 w-24" />
                                     </TableCell>
                                     <TableCell>
+                                        <Skeleton className="h-4 w-32" />
+                                    </TableCell>
+                                    <TableCell>
                                         <Skeleton className="h-4 w-28" />
+                                    </TableCell>
+                                    <TableCell>
+                                        <Skeleton className="h-6 w-16 rounded-full" />
                                     </TableCell>
                                     <TableCell>
                                         <Skeleton className="h-4 w-24" />
@@ -328,50 +354,24 @@ export default function DepositRenewalApplicationsTable() {
 
     return (
         <>
-            <div className="w-full space-y-4">
-                <div className="rounded-xl border bg-background p-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div className="relative w-full md:max-w-sm">
-                            <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={globalFilter}
-                                onChange={(e) => setGlobalFilter(e.target.value)}
-                                placeholder="Search..."
-                                className="pl-9 rounded-xl"
-                            />
-                        </div>
+            <div className="w-full space-y-4 mt-6">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end px-3 ">
 
-                        <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
-                            <Select
-                                value={(table.getColumn('status')?.getFilterValue() as string) || 'all'}
-                                onValueChange={(val) =>
-                                    table.getColumn('status')?.setFilterValue(val === 'all' ? '' : val)
-                                }
-                            >
-                                <SelectTrigger className="w-full sm:w-45 rounded-xl">
-                                    <SelectValue placeholder="Filter status" />
-                                </SelectTrigger>
-                                <SelectContent className='rounded-xl'>
-                                    <SelectItem value="all">All Status</SelectItem>
-                                    <SelectItem value="PENDING">Pending</SelectItem>
-                                    <SelectItem value="APPROVED">Approved</SelectItem>
-                                    <SelectItem value="REJECTED">Rejected</SelectItem>
-                                </SelectContent>
-                            </Select>
-
-                            <Button
-                                variant="default"
-                                className=''
-                                onClick={() => {
-                                    setGlobalFilter('')
-                                    setColumnFilters([])
-                                    setSorting([])
-                                }}
-                            >
-                                Reset
-                            </Button>
-                        </div>
+                    <div className="w-full md:max-w-sm">
+                        {table.getColumn('search') && (
+                            <Filter column={table.getColumn('search')!} />
+                        )}
                     </div>
+
+                    <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
+                        {table.getColumn('status') && (
+                            <div className="w-full sm:w-45">
+                                <Filter column={table.getColumn('status')!} />
+                            </div>
+                        )}
+
+                    </div>
+
                 </div>
 
                 <div className="overflow-hidden rounded-xl border bg-background">
@@ -380,8 +380,11 @@ export default function DepositRenewalApplicationsTable() {
                             {table.getHeaderGroups().map((headerGroup) => (
                                 <TableRow key={headerGroup.id} className="bg-muted/40">
                                     {headerGroup.headers.map((header) => (
-                                        <TableHead key={header.id} className="h-11 whitespace-nowrap">
-                                            {header.isPlaceholder
+                                        <TableHead
+                                            key={header.id}
+                                            className={header.column.id === 'search' ? 'hidden' : 'h-11 whitespace-nowrap'}
+                                        >
+                                            {header.isPlaceholder || header.column.id === 'search'
                                                 ? null
                                                 : flexRender(header.column.columnDef.header, header.getContext())}
                                         </TableHead>
@@ -393,7 +396,7 @@ export default function DepositRenewalApplicationsTable() {
                         <TableBody>
                             {isPending ? (
                                 <TableRow>
-                                    <TableCell colSpan={columns.length} className="h-24 text-center">
+                                    <TableCell colSpan={columns.length - 1} className="h-24 text-center">
                                         Loading...
                                     </TableCell>
                                 </TableRow>
@@ -401,15 +404,20 @@ export default function DepositRenewalApplicationsTable() {
                                 table.getRowModel().rows.map((row) => (
                                     <TableRow key={row.id}>
                                         {row.getVisibleCells().map((cell) => (
-                                            <TableCell key={cell.id} className="whitespace-nowrap">
-                                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                            <TableCell
+                                                key={cell.id}
+                                                className={cell.column.id === 'search' ? 'hidden' : 'whitespace-nowrap'}
+                                            >
+                                                {cell.column.id === 'search'
+                                                    ? null
+                                                    : flexRender(cell.column.columnDef.cell, cell.getContext())}
                                             </TableCell>
                                         ))}
                                     </TableRow>
                                 ))
                             ) : (
                                 <TableRow>
-                                    <TableCell colSpan={columns.length} className="h-24 text-center">
+                                    <TableCell colSpan={columns.length - 1} className="h-24 text-center">
                                         No data found.
                                     </TableCell>
                                 </TableRow>

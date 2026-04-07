@@ -939,14 +939,14 @@ export default function ViewLoanApplication({
                                                                     setEditingAmountKey(null)
                                                                 }
                                                             }}
-                                                            className="h-9 w-[150px] rounded-lg text-right text-xs"
+                                                            className="h-9 w-37.5 rounded-lg text-right text-xs"
                                                         />
                                                     ) : (
                                                         <div
                                                             onDoubleClick={() =>
                                                                 setEditingAmountKey(item.key)
                                                             }
-                                                            className="flex h-9 w-[150px] cursor-pointer items-center justify-end rounded-lg border bg-background px-3 text-xs font-medium text-foreground"
+                                                            className="flex h-9 w-37.5 cursor-pointer items-center justify-end rounded-lg border bg-background px-3 text-xs font-medium text-foreground"
                                                             title="Double click to edit"
                                                         >
                                                             {Number(item.amount).toFixed(2)}
@@ -998,7 +998,7 @@ export default function ViewLoanApplication({
                                     onClick={handleSubmitApplication}
                                     disabled={approveLoanApplicationMutation.isPending}
                                 >
-                                    {approveLoanApplicationMutation.isPending ? 'Submitting...' : 'Submit'}
+                                    {approveLoanApplicationMutation.isPending ? 'Submitting...' : 'Approve'}
                                 </Button>
                             </div>
                         </TabsContent>

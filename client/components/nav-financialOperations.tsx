@@ -34,9 +34,6 @@ export function FinancialOperations({
   const pathname = usePathname()
   const currentPath = pathname;
 
-
-
-
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">

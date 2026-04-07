@@ -11,11 +11,16 @@ class ApiResponse
         mixed $data = null,
         int $statusCode = 200
     ): JsonResponse {
-        return response()->json([
-            'success' => true,
-            'message' => $message,
-            'data' => $data,
-        ], $statusCode);
+        return response()->json(
+            [
+                'success' => true,
+                'message' => $message,
+                'data' => $data,
+            ],
+            $statusCode,
+            [],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        );
     }
 
     public static function error(
@@ -23,10 +28,15 @@ class ApiResponse
         mixed $errors = null,
         int $statusCode = 400
     ): JsonResponse {
-        return response()->json([
-            'success' => false,
-            'message' => $message,
-            'errors' => $errors,
-        ], $statusCode);
+        return response()->json(
+            [
+                'success' => false,
+                'message' => $message,
+                'errors' => $errors,
+            ],
+            $statusCode,
+            [],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        );
     }
 }

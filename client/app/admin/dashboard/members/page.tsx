@@ -39,7 +39,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner"
 import { useAuth } from "@/providers/auth-provider"
 import { Spinner } from "@/components/ui/spinner"
-
+import { Skeleton } from "@/components/ui/skeleton"
 
 declare module "@tanstack/react-table" {
     interface ColumnMeta<TData extends RowData, TValue> {
@@ -85,7 +85,7 @@ export default function Members() {
     const [viewOpen, setViewOpen] = useState(false)
     const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null)
 
-    const { data: members = [] } = useQuery({
+    const { data: members = [], isLoading } = useQuery({
         queryKey: ["members"],
         queryFn: getMemberHandler
     })
@@ -156,13 +156,11 @@ export default function Members() {
                     setSelectedStatus(member.status || "")
                 }, [member.status])
 
-
                 const updateStatusMutation = useMutation({
                     mutationFn: updateMemberStatusHandler,
                     onSuccess: async () => {
                         toast.success("Member status updated successfully")
                         await queryClient.invalidateQueries({ queryKey: ["members"] })
-
                     },
                     onError: (error: any) => {
                         toast.error(
@@ -182,6 +180,7 @@ export default function Members() {
                         updated_by: user?.admin_name ? String(user.admin_name) : null,
                     })
                 }
+
                 return (
                     <Dialog
                         onOpenChange={(open) => {
@@ -218,17 +217,15 @@ export default function Members() {
                                                 </DialogDescription>
                                             </div>
                                         </div>
-
                                     </div>
                                 </DialogHeader>
                             </div>
 
-                            <div className="">
-                                <div className=" p-4">
+                            <div>
+                                <div className="p-4">
                                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                         <div className="rounded-xl border bg-background p-4 sm:col-span-2">
                                             <div className="flex justify-between">
-
                                                 <p className="mt-1 text-xl font-semibold text-foreground">
                                                     {member.full_name || "-"}
                                                 </p>
@@ -237,9 +234,7 @@ export default function Members() {
                                                 </Badge>
                                             </div>
 
-                                            <div className="">
-
-
+                                            <div>
                                                 <p className="mt-1 break-all text-sm font-semibold text-foreground">
                                                     {member.email || "-"}
                                                 </p>
@@ -251,7 +246,7 @@ export default function Members() {
                                     </div>
                                 </div>
 
-                                <div className=" p-4">
+                                <div className="p-4">
                                     <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                                         Select New Status
                                     </p>
@@ -329,11 +324,12 @@ export default function Members() {
     }
 
     const nonClickableColumns = new Set(["gender", "status", "nominee", "actions"])
+    const skeletonRows = Array.from({ length: 6 })
 
     return (
         <div className="overflow-hidden rounded-md">
             <div className="flex justify-between gap-3 px-2 py-6">
-                <div className="flex gap-3 my-auto">
+                <div className="my-auto flex gap-3">
                     <div className="w-100">
                         <Filter column={table.getColumn("full_name")!} />
                     </div>
@@ -348,6 +344,7 @@ export default function Members() {
                     <AddMembers />
                 </div>
             </div>
+
             {selectedMemberId ? (
                 <View
                     memberId={selectedMemberId}
@@ -356,7 +353,7 @@ export default function Members() {
                 />
             ) : null}
 
-            <div className="border border-border rounded-lg">
+            <div className="rounded-lg border border-border">
                 <Table>
                     <TableHeader>
                         {table.getHeaderGroups().map((headerGroup) => (
@@ -376,7 +373,17 @@ export default function Members() {
                     </TableHeader>
 
                     <TableBody>
-                        {table.getRowModel().rows?.length ? (
+                        {isLoading ? (
+                            skeletonRows.map((_, rowIndex) => (
+                                <TableRow key={`skeleton-row-${rowIndex}`}>
+                                    {columns.map((column, columnIndex) => (
+                                        <TableCell key={`skeleton-cell-${rowIndex}-${columnIndex}`}>
+                                            <Skeleton className="h-5 w-full rounded-md" />
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))
+                        ) : table.getRowModel().rows?.length ? (
                             table.getRowModel().rows.map((row) => (
                                 <TableRow
                                     key={row.id}

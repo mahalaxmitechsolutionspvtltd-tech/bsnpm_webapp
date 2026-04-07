@@ -10,6 +10,7 @@ use App\Models\LoanEmi;
 use App\Models\LoanEmiOverduesNotice;
 use App\Models\LoanScheme;
 use App\Models\Member;
+use App\Models\TrialBalance;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -166,7 +167,6 @@ class LoanController extends Controller
             );
         }
     }
-
     public function approveLoanApplication(Request $request, $application_id)
     {
         $validator = Validator::make($request->all(), [
@@ -200,15 +200,15 @@ class LoanController extends Controller
                 ], 404);
             }
 
-            $requestedStatus = strtolower($request->application_status);
+            $requestedStatus = strtolower(trim((string) $request->application_status));
 
             $startDate = $request->start_date
                 ? Carbon::parse($request->start_date)->startOfDay()
                 : null;
 
-            $sanchalakApproved = strtolower((string) $application->sanchalak_approvals_status) === 'approved';
-            $guarantor1Approved = strtolower((string) $application->guarantor_1_status) === 'approved';
-            $guarantor2Approved = strtolower((string) $application->guarantor_2_status) === 'approved';
+            $sanchalakApproved = strtolower(trim((string) $application->sanchalak_approvals_status)) === 'approved';
+            $guarantor1Approved = strtolower(trim((string) $application->guarantor_1_status)) === 'approved';
+            $guarantor2Approved = strtolower(trim((string) $application->guarantor_2_status)) === 'approved';
 
             if ($requestedStatus === 'approved') {
                 if (!$sanchalakApproved || !$guarantor1Approved || !$guarantor2Approved) {
@@ -390,6 +390,124 @@ class LoanController extends Controller
                 ]);
             }
 
+            $application = LoanApplication::find($application_id);
+
+            $isApplicationApproved = strtolower(trim((string) $application->application_status)) === 'approved';
+            $isAdminApproved = strtolower(trim((string) $application->admin_approval_status)) === 'approved';
+            $isSanchalakApproved = strtolower(trim((string) $application->sanchalak_approvals_status)) === 'approved';
+            $isGuarantor1Approved = strtolower(trim((string) $application->guarantor_1_status)) === 'approved';
+            $isGuarantor2Approved = strtolower(trim((string) $application->guarantor_2_status)) === 'approved';
+
+            if (
+                $isApplicationApproved &&
+                $isAdminApproved &&
+                $isSanchalakApproved &&
+                $isGuarantor1Approved &&
+                $isGuarantor2Approved
+            ) {
+                $loanDeduction = LoanApplicationDeduction::where('application_no', $application->application_no)->first();
+
+                if ($loanDeduction) {
+                    $trialDate = Carbon::now();
+                    $trialMonth = (int) $trialDate->format('n');
+                    $trialYear = (int) $trialDate->format('Y');
+
+                    if ($trialMonth >= 4) {
+                        $financialYearStart = $trialYear;
+                        $financialYearEnd = $trialYear + 1;
+                    } else {
+                        $financialYearStart = $trialYear - 1;
+                        $financialYearEnd = $trialYear;
+                    }
+
+                    $financialYear = $financialYearStart . '-' . substr((string) $financialYearEnd, -2);
+
+                    $trialBalance = TrialBalance::where('financial_year', $financialYear)->first();
+
+                    if (!$trialBalance) {
+                        throw new \Exception('Trial balance record not found for financial year ' . $financialYear);
+                    }
+
+                    $creditJson = $trialBalance->credit_json;
+
+                    if (is_string($creditJson)) {
+                        $decodedCreditJson = json_decode($creditJson, true);
+                        $creditJson = is_array($decodedCreditJson) ? $decodedCreditJson : [];
+                    } elseif (!is_array($creditJson)) {
+                        $creditJson = [];
+                    }
+
+                    $existingIds = [];
+                    foreach ($creditJson as $creditItem) {
+                        if (is_array($creditItem) && isset($creditItem['id']) && is_numeric($creditItem['id'])) {
+                            $existingIds[] = (int) $creditItem['id'];
+                        }
+                    }
+
+                    $nextId = !empty($existingIds) ? max($existingIds) + 1 : 1;
+
+                    $existingEntries = [];
+                    foreach ($creditJson as $creditItem) {
+                        if (!is_array($creditItem)) {
+                            continue;
+                        }
+
+                        $existingApplicationNo = trim((string) ($creditItem['application_no'] ?? ''));
+                        $existingTitle = strtolower(trim((string) ($creditItem['title'] ?? '')));
+
+                        if ($existingApplicationNo === trim((string) $application->application_no) && $existingTitle !== '') {
+                            $existingEntries[$existingTitle] = true;
+                        }
+                    }
+
+                    $loanFormFee = (float) ($loanDeduction->loan_form_fee ?? 0);
+                    $kayamAmount = (float) ($loanDeduction->kayam_thev_amount ?? 0);
+                    $processingAmount = (float) ($loanDeduction->loan_processing_fee ?? 0);
+
+                    if ($loanFormFee > 0 && !isset($existingEntries['form fee amount'])) {
+                        $creditJson[] = [
+                            'id' => $nextId++,
+                            'title' => 'Form fee amount',
+                            'application_no' => (string) $application->application_no,
+                            'date' => $trialDate->format('d-m-Y'),
+                            'amount' => $loanFormFee,
+                            'mode' => 'online',
+                            'created_by' => (string) $request->updated_by,
+                        ];
+                    }
+
+                    if ($kayamAmount > 0 && !isset($existingEntries['kayam amount'])) {
+                        $creditJson[] = [
+                            'id' => $nextId++,
+                            'title' => 'Kayam amount',
+                            'application_no' => (string) $application->application_no,
+                            'date' => $trialDate->format('d-m-Y'),
+                            'amount' => $kayamAmount,
+                            'mode' => 'online',
+                            'created_by' => (string) $request->updated_by,
+                        ];
+                    }
+
+                    if ($processingAmount > 0 && !isset($existingEntries['processing amount'])) {
+                        $creditJson[] = [
+                            'id' => $nextId++,
+                            'title' => 'Processing amount',
+                            'application_no' => (string) $application->application_no,
+                            'date' => $trialDate->format('d-m-Y'),
+                            'amount' => $processingAmount,
+                            'mode' => 'online',
+                            'created_by' => (string) $request->updated_by,
+                        ];
+                    }
+
+                    $trialBalance->update([
+                        'credit_json' => $creditJson,
+                        'updated_by' => $request->updated_by,
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+
             DB::commit();
 
             return response()->json([
@@ -418,7 +536,6 @@ class LoanController extends Controller
             ], 500);
         }
     }
-
 
     public function getLoanEmiSchedules(Request $request)
     {

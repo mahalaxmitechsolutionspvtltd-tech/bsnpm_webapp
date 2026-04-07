@@ -35,7 +35,6 @@ import {
     Landmark,
     Loader2,
     ReceiptText,
-    X,
 } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -212,7 +211,6 @@ const getApplicationNoFromItem = (item: DepositAccountManagementItem) => {
 const getPaymentDetails = (viewData: DepositApplication | null) => {
     if (!viewData) return null
 
-    // ✅ New backend structure - payment_details directly on application
     const pd = (viewData as any)?.payment_details
     const mj = (viewData as any)?.matched_application_json
 
@@ -237,7 +235,6 @@ const getPaymentDetails = (viewData: DepositApplication | null) => {
         }
     }
 
-    // ✅ Fallback - old account_management array structure
     const raw = viewData?.account_management
     if (!raw) return null
 
@@ -322,6 +319,7 @@ const getPaymentDetails = (viewData: DepositApplication | null) => {
         member_id: getSafeValue(resolved.member_id, viewData?.member_id),
     }
 }
+
 const updateApplicationInData = (
     oldData: any,
     applicationId: string | number,
@@ -415,6 +413,106 @@ const SectionTitle = ({
     )
 }
 
+type ProofPreviewDialogProps = {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    proofFileUrl: string | null
+    proofFilePath: string | null
+    previewFailed: boolean
+    onPreviewError: () => void
+}
+
+function ProofPreviewDialog({
+    open,
+    onOpenChange,
+    proofFileUrl,
+    proofFilePath,
+    previewFailed,
+    onPreviewError,
+}: ProofPreviewDialogProps) {
+    const proofIsImage = React.useMemo(() => isImageFile(proofFilePath), [proofFilePath])
+    const proofIsPdf = React.useMemo(() => isPdfFile(proofFilePath), [proofFilePath])
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="w-[50vw] h-[80vh] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-2xl  sm:max-w-5xl">
+                <DialogHeader className="border-b border-slate-200 bg-linear-to-r from-white via-slate-50 to-white px-5 py-4">
+                    <DialogTitle className="text-[18px] font-semibold tracking-tight text-slate-900">
+                        Payment Proof
+                    </DialogTitle>
+                </DialogHeader>
+
+                <div className=" -mt-5 px-2 space-y-3">
+                    <div className="flex h-[72vh] items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                        {!proofFileUrl ? (
+                            <div className="text-center">
+                                <ImageIcon className="mx-auto h-10 w-10 text-slate-300" />
+                                <div className="mt-3 text-[14px] text-slate-500">
+                                    No proof file found
+                                </div>
+                            </div>
+                        ) : proofIsImage && !previewFailed ? (
+                            <img
+                                src={proofFileUrl}
+                                alt="Payment proof"
+                                className="h-full w-full object-contain"
+                                onError={onPreviewError}
+                            />
+                        ) : proofIsPdf && !previewFailed ? (
+                            <iframe
+                                src={proofFileUrl}
+                                title="Payment proof preview"
+                                className="h-full w-full"
+                            />
+                        ) : (
+                            <div className="text-center">
+                                <div className="text-[14px] font-medium text-slate-600">
+                                    Preview failed
+                                </div>
+                                {proofFileUrl ? (
+                                    <a
+                                        href={proofFileUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="mt-3 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold text-slate-900 transition hover:bg-slate-50"
+                                    >
+                                        <ExternalLink className="h-4 w-4" />
+                                        Open in New Tab
+                                    </a>
+                                ) : null}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <DialogFooter className="border-t border-slate-200 bg-slate-50/80 px-5 py-3">
+                    {proofFileUrl ? (
+                        <a
+                            href={proofFileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-900 transition hover:bg-slate-100"
+                        >
+                            <ExternalLink className="h-4 w-4" />
+                            Open in New Tab
+                        </a>
+                    ) : null}
+
+                    <DialogClose asChild>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-xl bg-white text-[13px]"
+                        >
+                            Close
+                        </Button>
+                    </DialogClose>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
 export default function View({ open, onOpenChange, data }: ViewProps) {
     const queryClient = useQueryClient()
     const { user } = useAuth()
@@ -427,6 +525,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
     const [endPopoverOpen, setEndPopoverOpen] = React.useState(false)
     const [proofUrlIndex, setProofUrlIndex] = React.useState(0)
     const [previewFailed, setPreviewFailed] = React.useState(false)
+    const [proofDialogOpen, setProofDialogOpen] = React.useState(false)
 
     React.useEffect(() => {
         setViewData(data)
@@ -452,6 +551,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
     React.useEffect(() => {
         setProofUrlIndex(0)
         setPreviewFailed(false)
+        setProofDialogOpen(false)
     }, [proofFilePath, open])
 
     const proofFileUrl =
@@ -587,8 +687,6 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
         setPreviewFailed(true)
     }
 
-    console.log(data?.payment_details?.payment_mode);
-
     const memberName = paymentDetails?.member_name ?? viewData?.member_name ?? "-"
     const memberId = paymentDetails?.member_id ?? viewData?.member_id ?? "-"
     const amount = paymentDetails?.total_amount ?? viewData?.deposit_amount ?? "-"
@@ -598,400 +696,404 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
     const submittedAt = paymentDetails?.submitted_at ?? viewData?.created_at ?? "-"
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-[95vw] gap-0 overflow-hidden rounded-3xl border border-slate-200 bg-white p-0 shadow-2xl sm:max-w-245 select-none">
-                <DialogHeader className="border-b border-slate-200 bg-linear-to-r from-white via-slate-50 to-white px-5 py-4">
-                    <div className="flex items-start justify-between gap-4">
-                        <div>
-                            <DialogTitle className="text-[20px] font-semibold tracking-tight text-slate-900">
-                                Submission Details
-                            </DialogTitle>
-                            <p className="mt-1 text-[12px] text-slate-500">
-                                Review member submission and take action
-                            </p>
-                        </div>
-
-                        <DialogClose asChild>
-                            <button
-                                type="button"
-                                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                            >
-                                <X className="h-4 w-4" />
-                            </button>
-                        </DialogClose>
-                    </div>
-                </DialogHeader>
-
-                {!viewData ? (
-                    <div className="px-5 py-8 text-sm text-slate-500">
-                        No submission details found.
-                    </div>
-                ) : (
-                    <div className="max-h-[74vh] overflow-y-auto px-5 py-4">
-                        <div className="grid gap-3">
-                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                <StatCard
-                                    label="Member"
-                                    value={
-                                        <div>
-                                            <div className="truncate">{memberName}</div>
-                                            <div className="mt-1 text-[11px] font-medium text-slate-500">
-                                                {memberId}
-                                            </div>
-                                        </div>
-                                    }
-                                />
-
-                                <StatCard
-                                    label="Total Amount"
-                                    value={`₹ ${formatCurrency(amount)}`}
-                                />
-
-                                <StatCard
-                                    label="Status"
-                                    value={
-                                        <Badge
-                                            className={cn(
-                                                "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold capitalize shadow-sm",
-                                                getStatusTone(
-                                                    String(
-                                                        paymentDetails?.status ??
-                                                        viewData?.status ??
-                                                        "pending"
-                                                    )
-                                                )
-                                            )}
-                                        >
-                                            {String(
-                                                paymentDetails?.status ??
-                                                viewData?.status ??
-                                                "pending"
-                                            )}
-                                        </Badge>
-                                    }
-                                />
-
-                                <StatCard
-                                    label="Date Paid"
-                                    value={formatDateDisplay(paidDate)}
-                                />
+        <>
+            <Dialog open={open} onOpenChange={onOpenChange}>
+                <DialogContent className="w-[95vw] gap-0 overflow-hidden rounded-3xl border border-slate-200 bg-white p-0 shadow-2xl sm:max-w-245 select-none">
+                    <DialogHeader className="border-b border-slate-200 bg-linear-to-r from-white via-slate-50 to-white px-5 py-4">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <DialogTitle className="text-[20px] font-semibold tracking-tight text-slate-900">
+                                    Submission Details
+                                </DialogTitle>
+                                <p className="mt-1 text-[12px] text-slate-500">
+                                    Review member submission and take action
+                                </p>
                             </div>
+                        </div>
+                    </DialogHeader>
 
-                            <div className="grid gap-3 lg:grid-cols-[1.55fr_0.82fr]">
-                                <div className="space-y-3">
-                                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                                        <SectionTitle
-                                            title="Scheme Breakdown"
-                                            icon={<Landmark className="h-4 w-4" />}
-                                        />
-
-                                        <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-3">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <div className="min-w-0">
-                                                    <div className="truncate text-[13px] font-semibold text-slate-800">
-                                                        {memberName}
-                                                    </div>
-                                                </div>
-                                                <div className="text-[12px] font-medium text-slate-500">
+                    {!viewData ? (
+                        <div className="px-5 py-8 text-sm text-slate-500">
+                            No submission details found.
+                        </div>
+                    ) : (
+                        <div className="max-h-[74vh] overflow-y-auto px-5 py-4">
+                            <div className="grid gap-3">
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                    <StatCard
+                                        label="Member"
+                                        value={
+                                            <div>
+                                                <div className="truncate">{memberName}</div>
+                                                <div className="mt-1 text-[11px] font-medium text-slate-500">
                                                     {memberId}
                                                 </div>
                                             </div>
+                                        }
+                                    />
+
+                                    <StatCard
+                                        label="Total Amount"
+                                        value={`₹ ${formatCurrency(amount)}`}
+                                    />
+
+                                    <StatCard
+                                        label="Status"
+                                        value={
+                                            <Badge
+                                                className={cn(
+                                                    "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold capitalize shadow-sm",
+                                                    getStatusTone(
+                                                        String(
+                                                            paymentDetails?.status ??
+                                                            viewData?.status ??
+                                                            "pending"
+                                                        )
+                                                    )
+                                                )}
+                                            >
+                                                {String(
+                                                    paymentDetails?.status ??
+                                                    viewData?.status ??
+                                                    "pending"
+                                                )}
+                                            </Badge>
+                                        }
+                                    />
+
+                                    <StatCard
+                                        label="Date Paid"
+                                        value={formatDateDisplay(paidDate)}
+                                    />
+                                </div>
+
+                                <div className="grid gap-3 lg:grid-cols-[1.55fr_0.82fr]">
+                                    <div className="space-y-3">
+                                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                                            <SectionTitle
+                                                title="Scheme Breakdown"
+                                                icon={<Landmark className="h-4 w-4" />}
+                                            />
+
+                                            <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="truncate text-[13px] font-semibold text-slate-800">
+                                                            {memberName}
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-[12px] font-medium text-slate-500">
+                                                        {memberId}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full">
+                                                    <thead className="bg-slate-50/60">
+                                                        <tr className="border-b border-slate-200">
+                                                            <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500">
+                                                                Scheme
+                                                            </th>
+                                                            <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500">
+                                                                Application No
+                                                            </th>
+                                                            <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500">
+                                                                Amount
+                                                            </th>
+                                                            <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500">
+                                                                Due / EMI Range
+                                                            </th>
+                                                            <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500">
+                                                                Payment Mode
+                                                            </th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <tr className="align-middle">
+                                                            <td className="px-4 py-3 text-[10px] font-medium text-slate-800">
+                                                                {schemeLabel}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-[10px] text-slate-700">
+                                                                {paymentDetails?.application_no ??
+                                                                    viewData?.application_no ??
+                                                                    "-"}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-[10px] font-semibold text-slate-900">
+                                                                ₹ {formatCurrency(amount)}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-[10px] text-slate-700">
+                                                                {formatDateDisplay(paidDate)}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-[10px] capitalize text-slate-700">
+                                                                {String(
+                                                                    paymentDetails?.payment_mode ?? "-"
+                                                                ).toLowerCase()}
+                                                            </td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </div>
 
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full">
-                                                <thead className="bg-slate-50/60">
-                                                    <tr className="border-b border-slate-200">
-                                                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500">
-                                                            Scheme
-                                                        </th>
-                                                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500">
-                                                            Application No
-                                                        </th>
-                                                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500">
-                                                            Amount
-                                                        </th>
-                                                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500">
-                                                            Due / EMI Range
-                                                        </th>
-                                                        <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500">
-                                                            Payment Mode
-                                                        </th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <tr className="align-middle">
-                                                        <td className="px-4 py-3 text-[10px] font-medium text-slate-800">
-                                                            {schemeLabel}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-[10px] text-slate-700">
-                                                            {paymentDetails?.application_no ??
-                                                                viewData?.application_no ??
-                                                                "-"}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-[10px] font-semibold text-slate-900">
-                                                            ₹ {formatCurrency(amount)}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-[10px] text-slate-700">
-                                                            {formatDateDisplay(paidDate)}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-[10px] capitalize text-slate-700">
-                                                            {String(
-                                                                paymentDetails?.payment_mode ?? "-"
-                                                            ).toLowerCase()}
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+                                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                                            <SectionTitle
+                                                title="Remark"
+                                                icon={<Info className="h-4 w-4" />}
+                                            />
+
+                                            <div className="p-4">
+                                                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-[14px] italic text-slate-700">
+                                                    {remark}
+                                                </div>
+
+                                                <div className="mt-3 grid gap-3 border-t border-slate-200 pt-3 md:grid-cols-2">
+                                                    <div>
+                                                        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                                            UTR / Reference
+                                                        </div>
+                                                        <div className="mt-2 inline-flex min-h-9 items-center rounded-xl bg-slate-100 px-3 py-2 text-[13px] font-medium text-slate-800">
+                                                            {paymentDetails?.reference_trn ?? "-"}
+                                                        </div>
+                                                    </div>
+
+                                                    <div>
+                                                        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                                            Submitted At
+                                                        </div>
+                                                        <div className="mt-2 text-[13px] font-medium text-slate-800">
+                                                            {formatDateTimeDisplay(submittedAt)}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
 
                                     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                                         <SectionTitle
-                                            title="Remark"
-                                            icon={<Info className="h-4 w-4" />}
+                                            title="Receipt Proof"
+                                            icon={<ReceiptText className="h-4 w-4" />}
                                         />
 
-                                        <div className="p-4">
-                                            <div className="rounded-2xl bg-slate-50 px-4 py-3 text-[14px] italic text-slate-700">
-                                                {remark}
-                                            </div>
-
-                                            <div className="mt-3 grid gap-3 border-t border-slate-200 pt-3 md:grid-cols-2">
-                                                <div>
-                                                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                                                        UTR / Reference
+                                        <div className="p-1">
+                                            <div className="flex h-70.5 items-center justify-center rounded-md border border-slate-200 bg-slate-50">
+                                                {!proofFileUrl ? (
+                                                    <div className="text-center">
+                                                        <ImageIcon className="mx-auto h-8 w-8 text-slate-300" />
+                                                        <div className="mt-2 text-[13px] text-slate-500">
+                                                            No proof file found
+                                                        </div>
                                                     </div>
-                                                    <div className="mt-2 inline-flex min-h-9 items-center rounded-xl bg-slate-100 px-3 py-2 text-[13px] font-medium text-slate-800">
-                                                        {paymentDetails?.reference_trn ?? "-"}
+                                                ) : proofIsImage && !previewFailed ? (
+                                                    <img
+                                                        src={proofFileUrl}
+                                                        alt="Receipt proof"
+                                                        className="h-full w-full rounded-md object-contain"
+                                                        onError={handleProofLoadError}
+                                                    />
+                                                ) : proofIsPdf && !previewFailed ? (
+                                                    <iframe
+                                                        src={proofFileUrl}
+                                                        title="Receipt proof"
+                                                        className="h-full w-full rounded-md"
+                                                    />
+                                                ) : (
+                                                    <div className="text-center">
+                                                        <div className="text-[14px] text-slate-500">
+                                                            Preview failed
+                                                        </div>
                                                     </div>
-                                                </div>
-
-                                                <div>
-                                                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                                                        Submitted At
-                                                    </div>
-                                                    <div className="mt-2 text-[13px] font-medium text-slate-800">
-                                                        {formatDateTimeDisplay(submittedAt)}
-                                                    </div>
-                                                </div>
+                                                )}
                                             </div>
                                         </div>
-                                    </div>
-                                </div>
 
-                                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                                    <SectionTitle
-                                        title="Receipt Proof"
-                                        icon={<ReceiptText className="h-4 w-4" />}
-                                    />
-
-                                    <div className="p-4">
-                                        <div className="flex h-62.5 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
-                                            {!proofFileUrl ? (
-                                                <div className="text-center">
-                                                    <ImageIcon className="mx-auto h-8 w-8 text-slate-300" />
-                                                    <div className="mt-2 text-[13px] text-slate-500">
-                                                        No proof file found
-                                                    </div>
-                                                </div>
-                                            ) : proofIsImage && !previewFailed ? (
-                                                <img
-                                                    src={proofFileUrl}
-                                                    alt="Receipt proof"
-                                                    className="h-full w-full rounded-2xl object-contain"
-                                                    onError={handleProofLoadError}
-                                                />
-                                            ) : proofIsPdf && !previewFailed ? (
-                                                <iframe
-                                                    src={proofFileUrl}
-                                                    title="Receipt proof"
-                                                    className="h-full w-full rounded-2xl"
-                                                />
+                                        <div className="border-t border-slate-200 px-4 py-2">
+                                            {proofFileUrl ? (
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    onClick={() => setProofDialogOpen(true)}
+                                                    className="h-auto px-0 py-0 text-[13px] font-semibold text-slate-900 transition hover:bg-transparent hover:text-slate-700"
+                                                >
+                                                    <span className="inline-flex items-center gap-2">
+                                                        <ReceiptText className="h-4 w-4" />
+                                                        Show Proof
+                                                    </span>
+                                                </Button>
                                             ) : (
-                                                <div className="text-center">
-                                                    <div className="text-[14px] text-slate-500">
-                                                        Preview failed
-                                                    </div>
+                                                <div className="text-[13px] text-slate-400">
+                                                    No file attached
                                                 </div>
                                             )}
                                         </div>
                                     </div>
+                                </div>
 
-                                    <div className="border-t border-slate-200 px-4 py-3">
-                                        {proofFileUrl ? (
-                                            <a
-                                                href={proofFileUrl}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="inline-flex items-center gap-2 text-[13px] font-semibold text-slate-900 transition hover:text-slate-700"
+                                <div className="rounded-2xl border border-slate-200 bg-linear-to-b from-white to-slate-50 p-4 shadow-sm">
+                                    <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                        Quick Actions
+                                    </div>
+
+                                    <div className="grid gap-3 xl:grid-cols-[1fr_1fr_auto_auto]">
+                                        <Select
+                                            value={status}
+                                            onValueChange={(value) => setStatus(value as DepositStatus)}
+                                            disabled={saveStatus.isPending}
+                                        >
+                                            <SelectTrigger className="h-10 rounded-xl bg-white text-[13px]">
+                                                <SelectValue placeholder="Select status" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="pending">Pending</SelectItem>
+                                                <SelectItem value="approved">Approved</SelectItem>
+                                                <SelectItem value="rejected">Rejected</SelectItem>
+                                                <SelectItem value="active">Active</SelectItem>
+                                                <SelectItem value="inprogress">In Progress</SelectItem>
+                                                <SelectItem value="completed">Completed</SelectItem>
+                                                <SelectItem value="closed">Closed</SelectItem>
+                                                <SelectItem value="withdrawn">Withdrawn</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <Popover
+                                                open={startPopoverOpen}
+                                                onOpenChange={setStartPopoverOpen}
                                             >
-                                                <ExternalLink className="h-4 w-4" />
-                                                Open Original File
-                                            </a>
-                                        ) : (
-                                            <div className="text-[13px] text-slate-400">
-                                                No file attached
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
+                                                <PopoverTrigger asChild>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        disabled={!isBackendApproved || saveDates.isPending}
+                                                        className="h-10 justify-start rounded-xl bg-white text-left text-[13px]"
+                                                    >
+                                                        {startDate
+                                                            ? format(startDate, "yyyy-MM-dd")
+                                                            : "Start date"}
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0" align="start">
+                                                    <Calendar
+                                                        mode="single"
+                                                        selected={startDate}
+                                                        captionLayout="dropdown"
+                                                        fromYear={2000}
+                                                        toYear={2100}
+                                                        onSelect={(date) => {
+                                                            if (!date) return
 
-                            <div className="rounded-2xl border border-slate-200 bg-linear-to-b from-white to-slate-50 p-4 shadow-sm">
-                                <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                                    Quick Actions
-                                </div>
+                                                            const normalizedDate = new Date(date)
+                                                            normalizedDate.setHours(0, 0, 0, 0)
 
-                                <div className="grid gap-3 xl:grid-cols-[1fr_1fr_auto_auto]">
-                                    <Select
-                                        value={status}
-                                        onValueChange={(value) => setStatus(value as DepositStatus)}
-                                        disabled={saveStatus.isPending}
-                                    >
-                                        <SelectTrigger className="h-10 rounded-xl bg-white text-[13px]">
-                                            <SelectValue placeholder="Select status" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="pending">Pending</SelectItem>
-                                            <SelectItem value="approved">Approved</SelectItem>
-                                            <SelectItem value="rejected">Rejected</SelectItem>
-                                            <SelectItem value="active">Active</SelectItem>
-                                            <SelectItem value="inprogress">In Progress</SelectItem>
-                                            <SelectItem value="completed">Completed</SelectItem>
-                                            <SelectItem value="closed">Closed</SelectItem>
-                                            <SelectItem value="withdrawn">Withdrawn</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <Popover
-                                            open={startPopoverOpen}
-                                            onOpenChange={setStartPopoverOpen}
-                                        >
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    disabled={!isBackendApproved || saveDates.isPending}
-                                                    className="h-10 justify-start rounded-xl bg-white text-left text-[13px]"
-                                                >
-                                                    {startDate
-                                                        ? format(startDate, "yyyy-MM-dd")
-                                                        : "Start date"}
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0" align="start">
-                                                <Calendar
-                                                    mode="single"
-                                                    selected={startDate}
-                                                    captionLayout="dropdown"
-                                                    fromYear={2000}
-                                                    toYear={2100}
-                                                    onSelect={(date) => {
-                                                        if (!date) return
-
-                                                        const normalizedDate = new Date(date)
-                                                        normalizedDate.setHours(0, 0, 0, 0)
-
-                                                        setStartDate(normalizedDate)
-                                                        setEndDate(
-                                                            calculateEndDateFromStart(
-                                                                normalizedDate,
-                                                                tenureYears
+                                                            setStartDate(normalizedDate)
+                                                            setEndDate(
+                                                                calculateEndDateFromStart(
+                                                                    normalizedDate,
+                                                                    tenureYears
+                                                                )
                                                             )
-                                                        )
-                                                        setStartPopoverOpen(false)
-                                                    }}
-                                                    initialFocus
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
+                                                            setStartPopoverOpen(false)
+                                                        }}
+                                                        initialFocus
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
 
-                                        <Popover
-                                            open={endPopoverOpen}
-                                            onOpenChange={setEndPopoverOpen}
+                                            <Popover
+                                                open={endPopoverOpen}
+                                                onOpenChange={setEndPopoverOpen}
+                                            >
+                                                <PopoverTrigger asChild>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        disabled={!isBackendApproved || saveDates.isPending}
+                                                        className="h-10 justify-start rounded-xl bg-white text-left text-[13px]"
+                                                    >
+                                                        {endDate
+                                                            ? format(endDate, "yyyy-MM-dd")
+                                                            : "End date"}
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0" align="start">
+                                                    <Calendar
+                                                        mode="single"
+                                                        selected={endDate}
+                                                        captionLayout="dropdown"
+                                                        fromYear={2000}
+                                                        toYear={2100}
+                                                        onSelect={(date) => {
+                                                            if (!date) return
+                                                            const normalizedDate = new Date(date)
+                                                            normalizedDate.setHours(0, 0, 0, 0)
+                                                            setEndDate(normalizedDate)
+                                                            setEndPopoverOpen(false)
+                                                        }}
+                                                        initialFocus
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
+                                        </div>
+
+                                        <Button
+                                            type="button"
+                                            onClick={handleSave}
+                                            disabled={
+                                                saveStatus.isPending ||
+                                                status ===
+                                                String(viewData.status ?? "pending").toLowerCase()
+                                            }
+                                            className="h-10 rounded-xl px-4 text-[13px]"
                                         >
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    disabled={!isBackendApproved || saveDates.isPending}
-                                                    className="h-10 justify-start rounded-xl bg-white text-left text-[13px]"
-                                                >
-                                                    {endDate
-                                                        ? format(endDate, "yyyy-MM-dd")
-                                                        : "End date"}
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0" align="start">
-                                                <Calendar
-                                                    mode="single"
-                                                    selected={endDate}
-                                                    captionLayout="dropdown"
-                                                    fromYear={2000}
-                                                    toYear={2100}
-                                                    onSelect={(date) => {
-                                                        if (!date) return
-                                                        const normalizedDate = new Date(date)
-                                                        normalizedDate.setHours(0, 0, 0, 0)
-                                                        setEndDate(normalizedDate)
-                                                        setEndPopoverOpen(false)
-                                                    }}
-                                                    initialFocus
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
+                                            {saveStatus.isPending ? <Spinner /> : "Confirm Status"}
+                                        </Button>
+
+                                        <Button
+                                            type="button"
+                                            onClick={handleDateSave}
+                                            disabled={
+                                                !isBackendApproved ||
+                                                !startDate ||
+                                                !endDate ||
+                                                saveDates.isPending
+                                            }
+                                            className="h-10 rounded-xl px-4 text-[13px]"
+                                        >
+                                            {saveDates.isPending ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                                "Save Dates"
+                                            )}
+                                        </Button>
                                     </div>
-
-                                    <Button
-                                        type="button"
-                                        onClick={handleSave}
-                                        disabled={
-                                            saveStatus.isPending ||
-                                            status ===
-                                            String(viewData.status ?? "pending").toLowerCase()
-                                        }
-                                        className="h-10 rounded-xl px-4 text-[13px]"
-                                    >
-                                        {saveStatus.isPending ? <Spinner /> : "Confirm Status"}
-                                    </Button>
-
-                                    <Button
-                                        type="button"
-                                        onClick={handleDateSave}
-                                        disabled={
-                                            !isBackendApproved ||
-                                            !startDate ||
-                                            !endDate ||
-                                            saveDates.isPending
-                                        }
-                                        className="h-10 rounded-xl px-4 text-[13px]"
-                                    >
-                                        {saveDates.isPending ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                            "Save Dates"
-                                        )}
-                                    </Button>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                <DialogFooter className="border-t border-slate-200 bg-slate-50/80 px-5 py-3">
-                    <DialogClose asChild>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            className="rounded-xl bg-white text-[13px]"
-                        >
-                            Close
-                        </Button>
-                    </DialogClose>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                    <DialogFooter className="border-t border-slate-200 bg-slate-50/80 px-5 py-3">
+                        <DialogClose asChild>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="rounded-xl bg-white text-[13px]"
+                            >
+                                Close
+                            </Button>
+                        </DialogClose>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <ProofPreviewDialog
+                open={proofDialogOpen}
+                onOpenChange={setProofDialogOpen}
+                proofFileUrl={proofFileUrl}
+                proofFilePath={proofFilePath}
+                previewFailed={previewFailed}
+                onPreviewError={handleProofLoadError}
+            />
+        </>
     )
 }

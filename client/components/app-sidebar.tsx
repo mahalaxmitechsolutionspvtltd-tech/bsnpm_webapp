@@ -129,7 +129,7 @@ const data = {
 
     {
       name: "Payment History",
-      url: "#",
+      url: "/admin/dashboard/payments-history",
       icon: (
         <TimerReset
         />
@@ -145,7 +145,7 @@ const data = {
     },
     {
       name: "Data Entry",
-      url: "#",
+      url: "/admin/dashboard/data-entry",
       icon: (
         <NotebookPen
         />
@@ -153,12 +153,11 @@ const data = {
     },
     {
       name: "Trial Balance",
-      url: "#",
+      url: "/admin/dashboard/trial-balance",
       icon: (
         <Workflow
         />
       ),
-
     },
     {
       name: "Income & Expenses",

@@ -1,9 +1,13 @@
 <?php
 
+
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DataEntryController;
 use App\Http\Controllers\DepositeController;
 use App\Http\Controllers\LoanController;
 use App\Http\Controllers\MemberController;
+use App\Http\Controllers\PaymentsHistoryController;
+use App\Http\Controllers\TrialBalanceController;
 use App\Http\Middleware\AdminAuthMiddleware;
 use Illuminate\Support\Facades\Route;
 
@@ -61,5 +65,18 @@ Route::middleware([AdminAuthMiddleware::class])->group(function () {
     // Send mail
     Route::post('v1/loan/send-recovery-notice/{id}', [LoanController::class, 'sendRecoveryNotice']);
 
-});
+    // Payment histroy
+    Route::get('/v1/payment-history', [PaymentsHistoryController::class, 'getPaymentHistory']);
+    Route::patch('/v1/payment-history/approve/{accountManagementId}', [PaymentsHistoryController::class, 'approvePayment']);
 
+
+    //Data Entyry
+    Route::get('/v1/data-entry', [DataEntryController::class, 'getDataEntry']);
+    Route::post('/v1/add-data-entry', [DataEntryController::class, 'addDataEntry']);
+    Route::patch('/v1/update-data-entry/{id}', [DataEntryController::class, 'updateDataEntry']);
+
+    // Trial balance 
+
+    Route::get('v1/get-trial-balance', [TrialBalanceController::class, 'getTrialBalance']);
+
+});
