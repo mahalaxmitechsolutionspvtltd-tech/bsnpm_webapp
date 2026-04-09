@@ -51,7 +51,7 @@ const data = {
     },
     {
       title: "Investments Protfolio",
-      url: "#",
+      url: "/admin/dashboard/investments",
       icon: (<BookOpenIcon />)
     },
 
@@ -85,7 +85,7 @@ const data = {
     },
     {
       name: "Withdrawal Requests",
-      url: "#",
+      url: "/admin/dashboard/withdrawal-requests",
       icon: (
         <Wallet
         />

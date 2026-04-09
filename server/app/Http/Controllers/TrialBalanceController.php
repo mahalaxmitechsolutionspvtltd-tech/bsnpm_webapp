@@ -11,277 +11,321 @@ use Illuminate\Support\Facades\Validator;
 class TrialBalanceController extends Controller
 {
     public function getTrialBalance(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'financial_year' => 'nullable|string|max:20',
-        ]);
+{
+    $validator = Validator::make($request->all(), [
+        'financial_year' => 'nullable|string|max:20',
+    ]);
 
-        if ($validator->fails()) {
-            return ApiResponse::error(
-                'Validation failed',
-                $validator->errors(),
-                422
-            );
+    if ($validator->fails()) {
+        return ApiResponse::error(
+            'Validation failed',
+            $validator->errors(),
+            422
+        );
+    }
+
+    try {
+        $financialYear = $request->input('financial_year');
+
+        if (empty($financialYear)) {
+            $today = Carbon::now();
+            $currentMonth = (int) $today->format('n');
+            $currentYear = (int) $today->format('Y');
+
+            if ($currentMonth >= 4) {
+                $financialYearStart = $currentYear;
+                $financialYearEnd = $currentYear + 1;
+            } else {
+                $financialYearStart = $currentYear - 1;
+                $financialYearEnd = $currentYear;
+            }
+
+            $financialYear = $financialYearStart . '-' . substr((string) $financialYearEnd, -2);
         }
 
-        try {
-            $financialYear = $request->input('financial_year');
+        $makeSummaryRow = function (string $title, float $debit, float $credit, string $type): array {
+            return [
+                'title' => $title,
+                'debit' => (float) $debit,
+                'credit' => (float) $credit,
+                'value' => (float) ($credit > 0 ? $credit : $debit),
+                'type' => $type,
+            ];
+        };
 
-            if (empty($financialYear)) {
-                $today = Carbon::now();
-                $currentMonth = (int) $today->format('n');
-                $currentYear = (int) $today->format('Y');
+        $normalizeTitleKey = function (?string $title): string {
+            return strtolower(preg_replace('/\s+/', ' ', trim((string) $title)));
+        };
 
-                if ($currentMonth >= 4) {
-                    $financialYearStart = $currentYear;
-                    $financialYearEnd = $currentYear + 1;
-                } else {
-                    $financialYearStart = $currentYear - 1;
-                    $financialYearEnd = $currentYear;
-                }
+        $getEntryAmount = function (array $item): float {
+            return (float) $this->toFloatAmount(
+                $item['amount']
+                ?? $item['emi amount']
+                ?? $item['emi_amount']
+                ?? 0
+            );
+        };
 
-                $financialYear = $financialYearStart . '-' . substr((string) $financialYearEnd, -2);
+        $normalizeMode = function ($mode): string {
+            $value = strtolower(trim((string) $mode));
+            $value = str_replace('_', ' ', $value);
+            $value = preg_replace('/\s+/', ' ', $value);
+            return trim($value);
+        };
+
+        $parseEntryDate = function ($date) {
+            $raw = trim((string) $date);
+
+            if ($raw === '') {
+                return null;
             }
 
-            $trialBalances = TrialBalance::where('financial_year', $financialYear)
-                ->orderByDesc('id')
-                ->get();
-
-            if ($trialBalances->isEmpty()) {
-                return ApiResponse::success(
-                    'Trial balance fetched successfully',
-                    [
-                        'financial_year' => $financialYear,
-                        'opening_balance' => 0,
-                        'cash_in_hand' => 0,
-                        'bank_balance' => 0,
-                        'closing_balance' => 0,
-                        'debit_json' => [],
-                        'credit_json' => [],
-                        'debit_total' => 0,
-                        'credit_total' => 0,
-                        'difference' => 0,
-                        'rows' => [],
-                    ]
-                );
+            try {
+                return Carbon::createFromFormat('d-m-Y', $raw)->startOfDay();
+            } catch (\Throwable $e) {
             }
 
-            foreach ($trialBalances as $trialBalanceRecord) {
-                $trialBalanceModel = TrialBalance::find($trialBalanceRecord->id);
-
-                if ($trialBalanceModel) {
-                    $this->calculateAndStoreBankBalance($trialBalanceModel);
-                }
+            try {
+                return Carbon::createFromFormat('Y-m-d', $raw)->startOfDay();
+            } catch (\Throwable $e) {
             }
 
-            $trialBalances = TrialBalance::where('financial_year', $financialYear)
-                ->orderByDesc('id')
-                ->get();
-
-            $openingBalance = 0.0;
-            $cashInHand = 0.0;
-            $bankBalance = 0.0;
-            $closingBalance = 0.0;
-            $allDebitJson = [];
-            $allCreditJson = [];
-
-            foreach ($trialBalances as $trialBalance) {
-                $openingBalance += $this->toFloatAmount($trialBalance->opening_balance ?? 0);
-                $cashInHand += $this->toFloatAmount($trialBalance->cash_in_hand ?? 0);
-                $bankBalance += $this->toFloatAmount($trialBalance->bank_balance ?? 0);
-                $closingBalance += $this->toFloatAmount($trialBalance->closing_balance ?? 0);
-
-                $debitJson = $this->normalizeJsonArray($trialBalance->debit_json);
-                $creditJson = $this->normalizeJsonArray($trialBalance->credit_json);
-
-                foreach ($debitJson as $item) {
-                    if (is_array($item)) {
-                        $allDebitJson[] = $item;
-                    }
-                }
-
-                foreach ($creditJson as $item) {
-                    if (is_array($item)) {
-                        $allCreditJson[] = $item;
-                    }
-                }
+            try {
+                return Carbon::parse($raw)->startOfDay();
+            } catch (\Throwable $e) {
             }
 
-            $groupedDebitJson = [];
-            foreach ($allDebitJson as $item) {
+            return null;
+        };
+
+        $aggregateEntriesByTitle = function (array $items, string $fallbackTitle) use ($normalizeTitleKey, $getEntryAmount): array {
+            $grouped = [];
+
+            foreach ($items as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+
                 $title = trim((string) ($item['title'] ?? ''));
-                $applicationNo = trim((string) ($item['application_no'] ?? ''));
-                $date = trim((string) ($item['date'] ?? ''));
-                $mode = trim((string) ($item['mode'] ?? ''));
-                $createdBy = trim((string) ($item['created_by'] ?? ''));
-                $amount = $this->toFloatAmount($item['amount'] ?? 0);
+                if ($title === '') {
+                    $title = $fallbackTitle;
+                }
 
-                $groupKey = implode('|', [
-                    $title,
-                    $applicationNo,
-                    $date,
-                    $mode,
-                    $createdBy,
-                ]);
+                $key = $normalizeTitleKey($title);
+                $amount = $getEntryAmount($item);
 
-                if (!isset($groupedDebitJson[$groupKey])) {
-                    $groupedDebitJson[$groupKey] = [
-                        'id' => count($groupedDebitJson) + 1,
+                if (!isset($grouped[$key])) {
+                    $grouped[$key] = [
                         'title' => $title,
-                        'application_no' => $applicationNo,
-                        'date' => $date,
                         'amount' => 0.0,
-                        'mode' => $mode,
-                        'created_by' => $createdBy,
                     ];
                 }
 
-                $groupedDebitJson[$groupKey]['amount'] += $amount;
+                $grouped[$key]['amount'] += $amount;
             }
 
-            $groupedCreditJson = [];
-            foreach ($allCreditJson as $item) {
-                $title = trim((string) ($item['title'] ?? ''));
-                $applicationNo = trim((string) ($item['application_no'] ?? ''));
-                $date = trim((string) ($item['date'] ?? ''));
-                $mode = trim((string) ($item['mode'] ?? ''));
-                $createdBy = trim((string) ($item['created_by'] ?? ''));
-                $amount = $this->toFloatAmount($item['amount'] ?? 0);
+            $rows = array_values($grouped);
 
-                $groupKey = implode('|', [
-                    $title,
-                    $applicationNo,
-                    $date,
-                    $mode,
-                    $createdBy,
-                ]);
-
-                if (!isset($groupedCreditJson[$groupKey])) {
-                    $groupedCreditJson[$groupKey] = [
-                        'id' => count($groupedCreditJson) + 1,
-                        'title' => $title,
-                        'application_no' => $applicationNo,
-                        'date' => $date,
-                        'amount' => 0.0,
-                        'mode' => $mode,
-                        'created_by' => $createdBy,
-                    ];
-                }
-
-                $groupedCreditJson[$groupKey]['amount'] += $amount;
-            }
-
-            $finalDebitJson = array_values($groupedDebitJson);
-            $finalCreditJson = array_values($groupedCreditJson);
-
-            usort($finalDebitJson, function ($a, $b) {
-                return strcmp((string) ($a['date'] ?? ''), (string) ($b['date'] ?? ''));
+            usort($rows, function ($a, $b) {
+                return strcmp((string) ($a['title'] ?? ''), (string) ($b['title'] ?? ''));
             });
 
-            usort($finalCreditJson, function ($a, $b) {
-                return strcmp((string) ($a['date'] ?? ''), (string) ($b['date'] ?? ''));
-            });
+            return $rows;
+        };
 
-            $debitTotal = 0.0;
-            foreach ($finalDebitJson as $item) {
-                $debitTotal += $this->toFloatAmount($item['amount'] ?? 0);
-            }
+        $trialBalances = TrialBalance::where('financial_year', $financialYear)
+            ->orderByDesc('id')
+            ->get();
 
-            $creditTotal = 0.0;
-            foreach ($finalCreditJson as $item) {
-                $creditTotal += $this->toFloatAmount($item['amount'] ?? 0);
-            }
-
-            $rows = [];
-
-            $rows[] = [
-                'title' => 'Opening Balance',
-                'debit' => null,
-                'credit' => (float) $openingBalance,
-                'type' => 'opening_balance',
-            ];
-
-            foreach ($finalCreditJson as $item) {
-                $rows[] = [
-                    'title' => (string) ($item['title'] ?? ''),
-                    'application_no' => (string) ($item['application_no'] ?? ''),
-                    'date' => (string) ($item['date'] ?? ''),
-                    'amount' => $this->toFloatAmount($item['amount'] ?? 0),
-                    'mode' => (string) ($item['mode'] ?? ''),
-                    'created_by' => (string) ($item['created_by'] ?? ''),
-                    'debit' => null,
-                    'credit' => $this->toFloatAmount($item['amount'] ?? 0),
-                    'type' => 'credit',
-                ];
-            }
-
-            foreach ($finalDebitJson as $item) {
-                $rows[] = [
-                    'title' => (string) ($item['title'] ?? ''),
-                    'application_no' => (string) ($item['application_no'] ?? ''),
-                    'date' => (string) ($item['date'] ?? ''),
-                    'amount' => $this->toFloatAmount($item['amount'] ?? 0),
-                    'mode' => (string) ($item['mode'] ?? ''),
-                    'created_by' => (string) ($item['created_by'] ?? ''),
-                    'debit' => $this->toFloatAmount($item['amount'] ?? 0),
-                    'credit' => null,
-                    'type' => 'debit',
-                ];
-            }
-
-            $rows[] = [
-                'title' => 'Closing Balance',
-                'debit' => null,
-                'credit' => (float) $closingBalance,
-                'type' => 'closing_balance',
-            ];
-
-            $rows[] = [
-                'title' => 'Cash in Hand',
-                'debit' => null,
-                'credit' => (float) $cashInHand,
-                'type' => 'cash_in_hand',
-            ];
-
-            $rows[] = [
-                'title' => 'Bank Balance',
-                'debit' => null,
-                'credit' => (float) $bankBalance,
-                'type' => 'bank_balance',
-            ];
-
-            $rows[] = [
-                'title' => 'Total',
-                'debit' => (float) $debitTotal,
-                'credit' => (float) $creditTotal,
-                'type' => 'total',
-            ];
-
+        if ($trialBalances->isEmpty()) {
             return ApiResponse::success(
                 'Trial balance fetched successfully',
                 [
                     'financial_year' => $financialYear,
-                    'opening_balance' => (float) $openingBalance,
-                    'cash_in_hand' => (float) $cashInHand,
-                    'bank_balance' => (float) $bankBalance,
-                    'closing_balance' => (float) $closingBalance,
-                    'debit_json' => $finalDebitJson,
-                    'credit_json' => $finalCreditJson,
-                    'debit_total' => (float) $debitTotal,
-                    'credit_total' => (float) $creditTotal,
-                    'difference' => (float) ($creditTotal - $debitTotal),
-                    'rows' => $rows,
-                    'raw' => $trialBalances,
+                    'summary' => [
+                        $makeSummaryRow('Opening Balance', 0, 0, 'opening_balance'),
+                        $makeSummaryRow('Cash in Hand', 0, 0, 'cash_in_hand'),
+                        $makeSummaryRow('Bank Balance', 0, 0, 'bank_balance'),
+                        $makeSummaryRow('Closing Balance', 0, 0, 'closing_balance'),
+                        $makeSummaryRow('Debit Total', 0, 0, 'debit_total'),
+                        $makeSummaryRow('Credit Total', 0, 0, 'credit_total'),
+                        $makeSummaryRow('Principal Amount Total', 0, 0, 'principal_total'),
+                        $makeSummaryRow('Loan Interest', 0, 0, 'interest_total'),
+                        $makeSummaryRow('Difference', 0, 0, 'difference'),
+                        $makeSummaryRow('Total', 0, 0, 'total'),
+                    ],
+                    'opening_balance' => 0.0,
+                    'cash_in_hand' => 0.0,
+                    'bank_balance' => 0.0,
+                    'closing_balance' => 0.0,
+                    'debit_total' => 0.0,
+                    'credit_total' => 0.0,
+                    'principal_amount_total' => 0.0,
+                    'interest_amount_total' => 0.0,
+                    'difference' => 0.0,
                 ]
             );
-        } catch (\Throwable $e) {
-            return ApiResponse::error(
-                'Failed to fetch trial balance',
-                ['error' => $e->getMessage()],
-                500
+        }
+
+        foreach ($trialBalances as $trialBalanceRecord) {
+            $trialBalanceModel = TrialBalance::find($trialBalanceRecord->id);
+
+            if ($trialBalanceModel) {
+                $this->calculateAndStoreBankBalance($trialBalanceModel);
+            }
+        }
+
+        $trialBalances = TrialBalance::where('financial_year', $financialYear)
+            ->orderByDesc('id')
+            ->get();
+
+        $openingBalance = 0.0;
+        $cashInHand = 0.0;
+        $bankBalance = 0.0;
+        $closingBalance = 0.0;
+        $allDebitJson = [];
+        $allCreditJson = [];
+
+        foreach ($trialBalances as $trialBalance) {
+            $bankBalance += $this->toFloatAmount($trialBalance->bank_balance ?? 0);
+
+            $debitJson = $this->normalizeJsonArray($trialBalance->debit_json);
+            $creditJson = $this->normalizeJsonArray($trialBalance->credit_json);
+
+            foreach ($debitJson as $item) {
+                if (is_array($item)) {
+                    $allDebitJson[] = $item;
+                }
+            }
+
+            foreach ($creditJson as $item) {
+                if (is_array($item)) {
+                    $allCreditJson[] = $item;
+                }
+            }
+        }
+
+        $aggregatedDebitRows = $aggregateEntriesByTitle($allDebitJson, 'Untitled Debit');
+        $aggregatedCreditRows = $aggregateEntriesByTitle($allCreditJson, 'Untitled Credit');
+
+        $debitTotal = 0.0;
+        foreach ($aggregatedDebitRows as $item) {
+            $debitTotal += (float) ($item['amount'] ?? 0);
+        }
+
+        $creditTotal = 0.0;
+        $principalAmountTotal = 0.0;
+        $interestAmountTotal = 0.0;
+
+        foreach ($allCreditJson as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $creditTotal += $getEntryAmount($item);
+            $principalAmountTotal += $this->toFloatAmount(
+                $item['principal amount']
+                ?? $item['principal_amount']
+                ?? 0
+            );
+            $interestAmountTotal += $this->toFloatAmount(
+                $item['interest amount']
+                ?? $item['interest_amount']
+                ?? 0
+            );
+
+            $mode = $normalizeMode($item['mode'] ?? $item['payment_mode'] ?? '');
+            if (str_contains($mode, 'cash')) {
+                $cashInHand += $getEntryAmount($item);
+            }
+        }
+
+        $sortedCreditEntries = array_values(array_filter($allCreditJson, function ($item) {
+            return is_array($item);
+        }));
+
+        usort($sortedCreditEntries, function ($a, $b) use ($parseEntryDate) {
+            $dateA = $parseEntryDate($a['date'] ?? null);
+            $dateB = $parseEntryDate($b['date'] ?? null);
+
+            if ($dateA && $dateB) {
+                return $dateA->timestamp <=> $dateB->timestamp;
+            }
+
+            if ($dateA && !$dateB) {
+                return -1;
+            }
+
+            if (!$dateA && $dateB) {
+                return 1;
+            }
+
+            return 0;
+        });
+
+        if (!empty($sortedCreditEntries)) {
+            $openingBalance = $getEntryAmount($sortedCreditEntries[0]);
+        }
+
+        $closingBalance = (float) ($creditTotal - $debitTotal);
+        $difference = (float) $closingBalance;
+
+        $summary = [];
+
+        $summary[] = $makeSummaryRow('Opening Balance', 0, (float) $openingBalance, 'opening_balance');
+        $summary[] = $makeSummaryRow('Cash in Hand', 0, (float) $cashInHand, 'cash_in_hand');
+        $summary[] = $makeSummaryRow('Bank Balance', 0, (float) $bankBalance, 'bank_balance');
+        $summary[] = $makeSummaryRow('Closing Balance', 0, (float) $closingBalance, 'closing_balance');
+
+        foreach ($aggregatedDebitRows as $item) {
+            $summary[] = $makeSummaryRow(
+                (string) ($item['title'] ?? 'Untitled Debit'),
+                (float) ($item['amount'] ?? 0),
+                0,
+                'debit'
             );
         }
+
+        foreach ($aggregatedCreditRows as $item) {
+            $summary[] = $makeSummaryRow(
+                (string) ($item['title'] ?? 'Untitled Credit'),
+                0,
+                (float) ($item['amount'] ?? 0),
+                'credit'
+            );
+        }
+
+        $summary[] = $makeSummaryRow('Principal Amount Total', 0, (float) $principalAmountTotal, 'principal_total');
+        $summary[] = $makeSummaryRow('Loan Interest', 0, (float) $interestAmountTotal, 'interest_total');
+        $summary[] = $makeSummaryRow('Debit Total', (float) $debitTotal, 0, 'debit_total');
+        $summary[] = $makeSummaryRow('Credit Total', 0, (float) $creditTotal, 'credit_total');
+        $summary[] = $makeSummaryRow('Difference', 0, (float) $difference, 'difference');
+        $summary[] = $makeSummaryRow('Total', (float) $debitTotal, (float) $creditTotal, 'total');
+
+        return ApiResponse::success(
+            'Trial balance fetched successfully',
+            [
+                'financial_year' => $financialYear,
+                'summary' => $summary,
+                'opening_balance' => (float) $openingBalance,
+                'cash_in_hand' => (float) $cashInHand,
+                'bank_balance' => (float) $bankBalance,
+                'closing_balance' => (float) $closingBalance,
+                'debit_total' => (float) $debitTotal,
+                'credit_total' => (float) $creditTotal,
+                'principal_amount_total' => (float) $principalAmountTotal,
+                'interest_amount_total' => (float) $interestAmountTotal,
+                'difference' => (float) $difference,
+            ]
+        );
+    } catch (\Throwable $e) {
+        return ApiResponse::error(
+            'Failed to fetch trial balance',
+            ['error' => $e->getMessage()],
+            500
+        );
     }
+}
 
     private function calculateAndStoreBankBalance($trialBalance): void
     {

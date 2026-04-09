@@ -1,11 +1,13 @@
 <?php
 
 
+use App\Http\Controllers\DepositWithdrawalController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DataEntryController;
 use App\Http\Controllers\DepositeController;
 use App\Http\Controllers\LoanController;
 use App\Http\Controllers\MemberController;
+use App\Http\Controllers\MemberInvestmentPortfolioController;
 use App\Http\Controllers\PaymentsHistoryController;
 use App\Http\Controllers\TrialBalanceController;
 use App\Http\Middleware\AdminAuthMiddleware;
@@ -17,6 +19,8 @@ Route::post('v1/sanchalaka/login', [AuthController::class, 'sanchalakaLogin']);
 
 Route::middleware([AdminAuthMiddleware::class])->group(function () {
 
+
+    Route::get('v1/member-investment-portfolio', [MemberInvestmentPortfolioController::class, 'getInvestments']);
     Route::get('v1/members', [MemberController::class, 'getMembers']);
     Route::get('v1/me', [AuthController::class, 'me']);
     Route::post('v1/logout', [AuthController::class, 'logout']);
@@ -44,6 +48,10 @@ Route::middleware([AdminAuthMiddleware::class])->group(function () {
     Route::get('v1/get-deposit-installments/{oldApplicationId}', [DepositeController::class, 'getDepositeApplicationsInstallmets']);
     Route::post('v1/approve-deposit-renewal', [DepositeController::class, 'approveDepositRenewal']);
 
+
+    Route::get('v1/withdrawal-requests', [DepositWithdrawalController::class, 'getWithdrawalRequests']);
+    Route::patch('v1/withdrawal-requests/{id}/approve', [DepositWithdrawalController::class, 'approveWithdrawalRequest']);
+    Route::patch('v1/withdrawal-requests/{id}/reject', [DepositWithdrawalController::class, 'rejectWithdrawalRequest']);
 
     // LOAN SCHEMES
 
@@ -78,5 +86,9 @@ Route::middleware([AdminAuthMiddleware::class])->group(function () {
     // Trial balance 
 
     Route::get('v1/get-trial-balance', [TrialBalanceController::class, 'getTrialBalance']);
+
+
+
+
 
 });

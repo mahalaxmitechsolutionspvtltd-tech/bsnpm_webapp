@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Helpers\ApiResponse;
 use App\Models\AccountManagement;
 use App\Models\DepositInstallment;
+use App\Models\LoanEmi;
+use App\Models\TrialBalance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use function Illuminate\Support\now;
@@ -224,10 +226,28 @@ class PaymentsHistoryController extends Controller
         DB::beginTransaction();
 
         try {
+            $normalizeValue = static function ($value): string {
+                return strtoupper(preg_replace('/\s+/', '', trim((string) $value)));
+            };
+
+            $formatJsonAmount = static function ($value): string {
+                $formatted = number_format((float) $value, 2, '.', '');
+                return rtrim(rtrim($formatted, '0'), '.');
+            };
+
+            $formatMode = static function ($value): string {
+                $mode = trim((string) $value);
+                $mode = str_replace('_', ' ', $mode);
+                $mode = preg_replace('/\s*\(\s*already\s+paid\s*\)\s*/i', '', $mode);
+                $mode = preg_replace('/\s*\(\s*cash\s+paid\s*\)\s*/i', '', $mode);
+                $mode = preg_replace('/\s+/', ' ', $mode);
+                $mode = trim($mode);
+                return $mode !== '' ? $mode : 'Cash';
+            };
+
             $applicationNo = trim((string) $validated['application_no']);
             $updatedBy = trim((string) $validated['updated_by']);
-
-            $normalizedApplicationNo = strtoupper(preg_replace('/\s+/', '', $applicationNo));
+            $normalizedApplicationNo = $normalizeValue($applicationNo);
 
             $accountManagement = AccountManagement::lockForUpdate()->find($accountManagementId);
 
@@ -253,6 +273,8 @@ class PaymentsHistoryController extends Controller
             }
 
             $applicationFound = false;
+            $matchedApplicationIndex = null;
+            $matchedApplicationItem = null;
 
             foreach ($applicationsJson as $index => $applicationItem) {
                 if (!is_array($applicationItem)) {
@@ -265,22 +287,25 @@ class PaymentsHistoryController extends Controller
                     ?? ''
                 ));
 
-                $normalizedJsonApplicationNo = strtoupper(preg_replace('/\s+/', '', $jsonApplicationNo));
+                $normalizedJsonApplicationNo = $normalizeValue($jsonApplicationNo);
 
                 if ($normalizedJsonApplicationNo !== $normalizedApplicationNo) {
                     continue;
                 }
 
                 $applicationFound = true;
+                $matchedApplicationIndex = $index;
 
                 $applicationsJson[$index]['status'] = 'approved';
                 $applicationsJson[$index]['payment status'] = 'approved';
-                $applicationsJson[$index]['payment_status'] = 'approved';
                 $applicationsJson[$index]['approved_by'] = $updatedBy;
                 $applicationsJson[$index]['approved_at'] = now()->toDateTimeString();
+
+                $matchedApplicationItem = $applicationsJson[$index];
+                break;
             }
 
-            if (!$applicationFound) {
+            if (!$applicationFound || $matchedApplicationIndex === null || !is_array($matchedApplicationItem)) {
                 DB::rollBack();
                 return ApiResponse::error(
                     'Application number not found in account management',
@@ -289,117 +314,458 @@ class PaymentsHistoryController extends Controller
                 );
             }
 
-            $depositInstallment = DepositInstallment::lockForUpdate()
-                ->where('application_no', $applicationNo)
-                ->first();
+            $accountPaymentTimestamp = $accountManagement->date_of_payment
+                ? strtotime((string) $accountManagement->date_of_payment)
+                : time();
 
-            if (!$depositInstallment) {
-                $depositInstallment = DepositInstallment::lockForUpdate()
-                    ->get()
-                    ->first(function ($row) use ($normalizedApplicationNo) {
-                        $rowApplicationNo = trim((string) $row->application_no);
-                        $normalizedRowApplicationNo = strtoupper(preg_replace('/\s+/', '', $rowApplicationNo));
-
-                        return $normalizedRowApplicationNo === $normalizedApplicationNo;
-                    });
+            if ($accountPaymentTimestamp === false) {
+                $accountPaymentTimestamp = time();
             }
 
-            if (!$depositInstallment && !empty($accountManagement->member_id)) {
-                $depositInstallment = DepositInstallment::lockForUpdate()
-                    ->where('member_id', $accountManagement->member_id)
-                    ->orderByDesc('id')
+            $accountPaymentDate = date('d-m-Y', $accountPaymentTimestamp);
+            $applicationAmount = (float) (
+                $matchedApplicationItem['amount']
+                ?? $matchedApplicationItem['emi amount']
+                ?? $matchedApplicationItem['emi_amount']
+                ?? $accountManagement->total_amount
+                ?? 0
+            );
+            $formattedApplicationAmount = number_format($applicationAmount, 2, '.', '');
+            $applicationTitle = trim((string) (
+                $matchedApplicationItem['title']
+                ?? $matchedApplicationItem['scheme_name']
+                ?? $matchedApplicationItem['scheme']
+                ?? 'Payment Approved'
+            ));
+            $paymentMode = trim((string) ($accountManagement->payment_mode ?? ''));
+            $normalizedPaymentMode = $formatMode($paymentMode);
+            $isLoanPayment = str_contains($normalizedApplicationNo, '-LN-');
+
+            $updatedScheduleItem = null;
+            $targetRecordId = null;
+            $targetType = null;
+            $trialBalanceEntry = null;
+
+            if ($isLoanPayment) {
+                $loanEmi = LoanEmi::lockForUpdate()
+                    ->where('application_no', $applicationNo)
                     ->first();
-            }
 
-            if (!$depositInstallment) {
-                DB::rollBack();
-                return ApiResponse::error(
-                    'Deposit installment record not found',
-                    [
-                        'application_no' => ['No deposit installment found for this application number'],
-                        'debug_application_no' => [$applicationNo],
-                        'debug_normalized_application_no' => [$normalizedApplicationNo],
-                    ],
-                    404
-                );
-            }
-
-            $installmentJson = $depositInstallment->installment_json;
-            $installmentJson = is_array($installmentJson) ? $installmentJson : [];
-
-            if (empty($installmentJson)) {
-                DB::rollBack();
-                return ApiResponse::error(
-                    'Installment JSON is empty',
-                    ['installment_json' => ['No installment data found']],
-                    422
-                );
-            }
-
-            $matchedInstallmentIndex = null;
-
-            $accountPaymentDate = $accountManagement->date_of_payment
-                ? date('d-m-Y', strtotime((string) $accountManagement->date_of_payment))
-                : null;
-
-            $accountAmount = number_format((float) $accountManagement->total_amount, 2, '.', '');
-
-            foreach ($installmentJson as $index => $installmentItem) {
-                if (!is_array($installmentItem)) {
-                    continue;
+                if (!$loanEmi) {
+                    $loanEmi = LoanEmi::lockForUpdate()
+                        ->get()
+                        ->first(function ($row) use ($normalizedApplicationNo, $normalizeValue) {
+                            return $normalizeValue($row->application_no) === $normalizedApplicationNo;
+                        });
                 }
 
-                $status = strtolower(trim((string) ($installmentItem['status'] ?? '')));
-                $date = trim((string) ($installmentItem['date'] ?? ''));
-                $amount = number_format((float) ($installmentItem['amount'] ?? 0), 2, '.', '');
-
-                if ($status === 'paid') {
-                    continue;
+                if (!$loanEmi && !empty($accountManagement->member_id)) {
+                    $loanEmi = LoanEmi::lockForUpdate()
+                        ->where('member_id', $accountManagement->member_id)
+                        ->orderByDesc('id')
+                        ->first();
                 }
 
-                if ($accountPaymentDate !== null && $date === $accountPaymentDate) {
-                    $matchedInstallmentIndex = $index;
-                    break;
+                if (!$loanEmi) {
+                    DB::rollBack();
+                    return ApiResponse::error(
+                        'Loan EMI record not found',
+                        ['application_no' => ['No loan EMI record found for this application number']],
+                        404
+                    );
                 }
 
-                if ($amount === $accountAmount) {
-                    $matchedInstallmentIndex = $index;
-                    break;
-                }
-            }
+                $emiSchedule = $loanEmi->emi_schedule;
+                $emiSchedule = is_array($emiSchedule) ? $emiSchedule : [];
 
-            if ($matchedInstallmentIndex === null) {
+                if (empty($emiSchedule)) {
+                    DB::rollBack();
+                    return ApiResponse::error(
+                        'Loan EMI schedule is empty',
+                        ['emi_schedule' => ['No EMI schedule data found']],
+                        422
+                    );
+                }
+
+                $matchedLoanScheduleIndex = null;
+
+                foreach ($emiSchedule as $index => $emiItem) {
+                    if (!is_array($emiItem)) {
+                        continue;
+                    }
+
+                    $status = strtolower(trim((string) ($emiItem['status'] ?? '')));
+                    $emiDate = trim((string) ($emiItem['emi date'] ?? $emiItem['emi_date'] ?? ''));
+                    $emiAmount = number_format((float) ($emiItem['emi amount'] ?? $emiItem['emi_amount'] ?? 0), 2, '.', '');
+
+                    if ($status === 'paid') {
+                        continue;
+                    }
+
+                    if ($emiDate === $accountPaymentDate && $emiAmount === $formattedApplicationAmount) {
+                        $matchedLoanScheduleIndex = $index;
+                        break;
+                    }
+                }
+
+                if ($matchedLoanScheduleIndex === null) {
+                    foreach ($emiSchedule as $index => $emiItem) {
+                        if (!is_array($emiItem)) {
+                            continue;
+                        }
+
+                        $status = strtolower(trim((string) ($emiItem['status'] ?? '')));
+                        $emiDate = trim((string) ($emiItem['emi date'] ?? $emiItem['emi_date'] ?? ''));
+
+                        if ($status === 'paid') {
+                            continue;
+                        }
+
+                        if ($emiDate === $accountPaymentDate) {
+                            $matchedLoanScheduleIndex = $index;
+                            break;
+                        }
+                    }
+                }
+
+                if ($matchedLoanScheduleIndex === null) {
+                    foreach ($emiSchedule as $index => $emiItem) {
+                        if (!is_array($emiItem)) {
+                            continue;
+                        }
+
+                        $status = strtolower(trim((string) ($emiItem['status'] ?? '')));
+                        $emiAmount = number_format((float) ($emiItem['emi amount'] ?? $emiItem['emi_amount'] ?? 0), 2, '.', '');
+
+                        if ($status === 'paid') {
+                            continue;
+                        }
+
+                        if ($emiAmount === $formattedApplicationAmount) {
+                            $matchedLoanScheduleIndex = $index;
+                            break;
+                        }
+                    }
+                }
+
+                if ($matchedLoanScheduleIndex === null) {
+                    foreach ($emiSchedule as $index => $emiItem) {
+                        if (!is_array($emiItem)) {
+                            continue;
+                        }
+
+                        $status = strtolower(trim((string) ($emiItem['status'] ?? '')));
+
+                        if ($status !== 'paid') {
+                            $matchedLoanScheduleIndex = $index;
+                            break;
+                        }
+                    }
+                }
+
+                if ($matchedLoanScheduleIndex === null) {
+                    DB::rollBack();
+                    return ApiResponse::error(
+                        'No pending EMI available to approve',
+                        ['emi_schedule' => ['All EMI schedule rows are already paid']],
+                        422
+                    );
+                }
+
+                $emiSchedule[$matchedLoanScheduleIndex]['status'] = 'paid';
+                $emiSchedule[$matchedLoanScheduleIndex]['updated_by'] = $updatedBy;
+                $emiSchedule[$matchedLoanScheduleIndex]['paid_at'] = now()->toDateTimeString();
+
+                $loanEmi->emi_schedule = $emiSchedule;
+                $loanEmi->save();
+
+                $updatedScheduleItem = $emiSchedule[$matchedLoanScheduleIndex];
+                $targetRecordId = $loanEmi->id;
+                $targetType = 'loan_emi';
+            } else {
+                $depositInstallment = DepositInstallment::lockForUpdate()
+                    ->where('application_no', $applicationNo)
+                    ->first();
+
+                if (!$depositInstallment) {
+                    $depositInstallment = DepositInstallment::lockForUpdate()
+                        ->get()
+                        ->first(function ($row) use ($normalizedApplicationNo, $normalizeValue) {
+                            return $normalizeValue($row->application_no) === $normalizedApplicationNo;
+                        });
+                }
+
+                if (!$depositInstallment && !empty($accountManagement->member_id)) {
+                    $depositInstallment = DepositInstallment::lockForUpdate()
+                        ->where('member_id', $accountManagement->member_id)
+                        ->orderByDesc('id')
+                        ->first();
+                }
+
+                if (!$depositInstallment) {
+                    DB::rollBack();
+                    return ApiResponse::error(
+                        'Deposit installment record not found',
+                        [
+                            'application_no' => ['No deposit installment found for this application number'],
+                            'debug_application_no' => [$applicationNo],
+                            'debug_normalized_application_no' => [$normalizedApplicationNo],
+                        ],
+                        404
+                    );
+                }
+
+                $installmentJson = $depositInstallment->installment_json;
+                $installmentJson = is_array($installmentJson) ? $installmentJson : [];
+
+                if (empty($installmentJson)) {
+                    DB::rollBack();
+                    return ApiResponse::error(
+                        'Installment JSON is empty',
+                        ['installment_json' => ['No installment data found']],
+                        422
+                    );
+                }
+
+                $matchedInstallmentIndex = null;
+
                 foreach ($installmentJson as $index => $installmentItem) {
                     if (!is_array($installmentItem)) {
                         continue;
                     }
 
                     $status = strtolower(trim((string) ($installmentItem['status'] ?? '')));
+                    $date = trim((string) ($installmentItem['date'] ?? ''));
+                    $amount = number_format((float) ($installmentItem['amount'] ?? 0), 2, '.', '');
 
-                    if ($status !== 'paid') {
+                    if ($status === 'paid') {
+                        continue;
+                    }
+
+                    if ($date === $accountPaymentDate && $amount === $formattedApplicationAmount) {
                         $matchedInstallmentIndex = $index;
                         break;
                     }
                 }
+
+                if ($matchedInstallmentIndex === null) {
+                    foreach ($installmentJson as $index => $installmentItem) {
+                        if (!is_array($installmentItem)) {
+                            continue;
+                        }
+
+                        $status = strtolower(trim((string) ($installmentItem['status'] ?? '')));
+                        $date = trim((string) ($installmentItem['date'] ?? ''));
+
+                        if ($status === 'paid') {
+                            continue;
+                        }
+
+                        if ($date === $accountPaymentDate) {
+                            $matchedInstallmentIndex = $index;
+                            break;
+                        }
+                    }
+                }
+
+                if ($matchedInstallmentIndex === null) {
+                    foreach ($installmentJson as $index => $installmentItem) {
+                        if (!is_array($installmentItem)) {
+                            continue;
+                        }
+
+                        $status = strtolower(trim((string) ($installmentItem['status'] ?? '')));
+                        $amount = number_format((float) ($installmentItem['amount'] ?? 0), 2, '.', '');
+
+                        if ($status === 'paid') {
+                            continue;
+                        }
+
+                        if ($amount === $formattedApplicationAmount) {
+                            $matchedInstallmentIndex = $index;
+                            break;
+                        }
+                    }
+                }
+
+                if ($matchedInstallmentIndex === null) {
+                    foreach ($installmentJson as $index => $installmentItem) {
+                        if (!is_array($installmentItem)) {
+                            continue;
+                        }
+
+                        $status = strtolower(trim((string) ($installmentItem['status'] ?? '')));
+
+                        if ($status !== 'paid') {
+                            $matchedInstallmentIndex = $index;
+                            break;
+                        }
+                    }
+                }
+
+                if ($matchedInstallmentIndex === null) {
+                    DB::rollBack();
+                    return ApiResponse::error(
+                        'No pending installment available to approve',
+                        ['installment_json' => ['All installments are already paid']],
+                        422
+                    );
+                }
+
+                $installmentJson[$matchedInstallmentIndex]['status'] = 'paid';
+                $installmentJson[$matchedInstallmentIndex]['updated_by'] = $updatedBy;
+                $installmentJson[$matchedInstallmentIndex]['paid_at'] = now()->toDateTimeString();
+
+                $depositInstallment->installment_json = $installmentJson;
+                $depositInstallment->updated_by = $updatedBy;
+                $depositInstallment->updated_at = now();
+                $depositInstallment->save();
+
+                $updatedScheduleItem = $installmentJson[$matchedInstallmentIndex];
+                $targetRecordId = $depositInstallment->id;
+                $targetType = 'deposit_installment';
             }
 
-            if ($matchedInstallmentIndex === null) {
-                DB::rollBack();
-                return ApiResponse::error(
-                    'No pending installment available to approve',
-                    ['installment_json' => ['All installments are already paid']],
-                    422
-                );
+            $paymentMonth = (int) date('n', $accountPaymentTimestamp);
+            $paymentYear = (int) date('Y', $accountPaymentTimestamp);
+
+            if ($paymentMonth >= 4) {
+                $startYear = $paymentYear;
+                $endYear = $startYear + 1;
+            } else {
+                $startYear = $paymentYear - 1;
+                $endYear = $paymentYear;
             }
 
-            $installmentJson[$matchedInstallmentIndex]['status'] = 'paid';
-            $installmentJson[$matchedInstallmentIndex]['updated_by'] = $updatedBy;
-            $installmentJson[$matchedInstallmentIndex]['paid_at'] = now()->toDateTimeString();
+            $financialYear = $startYear . '-' . substr((string) $endYear, -2);
 
-            $depositInstallment->installment_json = $installmentJson;
-            $depositInstallment->updated_by = $updatedBy;
-            $depositInstallment->updated_at = now();
-            $depositInstallment->save();
+            $trialBalance = TrialBalance::lockForUpdate()
+                ->where('financial_year', $financialYear)
+                ->first();
+
+            if (!$trialBalance) {
+                $trialBalance = TrialBalance::create([
+                    'financial_year' => $financialYear,
+                    'opening_balance' => 0,
+                    'cash_in_hand' => 0,
+                    'bank_balance' => 0,
+                    'closing_balance' => 0,
+                    'debit_json' => [],
+                    'credit_json' => [],
+                    'created_by' => $updatedBy,
+                    'created_at' => now(),
+                    'updated_by' => $updatedBy,
+                    'updated_at' => now(),
+                ]);
+            }
+
+            $creditJson = $trialBalance->credit_json;
+            $creditJson = is_array($creditJson) ? $creditJson : [];
+
+            if ($isLoanPayment) {
+                $emiAmount = round((float) ($updatedScheduleItem['emi amount'] ?? $updatedScheduleItem['emi_amount'] ?? 0), 2);
+                $principalAmount = round((float) ($updatedScheduleItem['principal amount'] ?? $updatedScheduleItem['principal_amount'] ?? 0), 2);
+                $interestAmount = round((float) ($updatedScheduleItem['interest amount'] ?? $updatedScheduleItem['interest_amount'] ?? 0), 2);
+
+                $creditJson = array_values(array_filter($creditJson, function ($entry) use ($normalizedApplicationNo, $accountPaymentDate, $normalizeValue) {
+                    if (!is_array($entry)) {
+                        return true;
+                    }
+
+                    $entryApplicationNo = $normalizeValue($entry['application_no'] ?? '');
+                    $entryDate = trim((string) ($entry['date'] ?? ''));
+                    $entryTitle = strtolower(trim((string) ($entry['title'] ?? '')));
+
+                    if (
+                        $entryApplicationNo === $normalizedApplicationNo &&
+                        $entryDate === $accountPaymentDate &&
+                        in_array($entryTitle, ['loan emi', 'loan emi - loan'], true)
+                    ) {
+                        return false;
+                    }
+
+                    return true;
+                }));
+
+                $nextCreditId = 1;
+
+                if (!empty($creditJson)) {
+                    $ids = array_map(function ($item) {
+                        return (int) ($item['id'] ?? 0);
+                    }, $creditJson);
+
+                    $nextCreditId = max($ids) + 1;
+                }
+
+                $trialBalanceEntry = [
+                    'id' => $nextCreditId,
+                    'title' => 'Loan EMI',
+                    'application_no' => $applicationNo,
+                    'date' => $accountPaymentDate,
+                    'emi amount' => $emiAmount,
+                    'principal amount' => $principalAmount,
+                    'interest amount' => $interestAmount,
+                    'mode' => $normalizedPaymentMode,
+                    'created_by' => $updatedBy,
+                ];
+
+                $creditJson[] = $trialBalanceEntry;
+            } else {
+                $normalizedTrialTitle = strtolower(trim($applicationTitle));
+                $formattedTrialBalanceAmount = number_format((float) ($updatedScheduleItem['amount'] ?? $applicationAmount), 2, '.', '');
+                $creditExists = false;
+
+                foreach ($creditJson as $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+
+                    $entryApplicationNo = $normalizeValue($entry['application_no'] ?? '');
+                    $entryDate = trim((string) ($entry['date'] ?? ''));
+                    $entryTitle = strtolower(trim((string) ($entry['title'] ?? '')));
+                    $entryAmount = number_format((float) ($entry['amount'] ?? 0), 2, '.', '');
+
+                    if (
+                        $entryApplicationNo === $normalizedApplicationNo &&
+                        $entryDate === $accountPaymentDate &&
+                        $entryTitle === $normalizedTrialTitle &&
+                        $entryAmount === $formattedTrialBalanceAmount
+                    ) {
+                        $creditExists = true;
+                        $trialBalanceEntry = $entry;
+                        break;
+                    }
+                }
+
+                if (!$creditExists) {
+                    $nextCreditId = 1;
+
+                    if (!empty($creditJson)) {
+                        $ids = array_map(function ($item) {
+                            return (int) ($item['id'] ?? 0);
+                        }, $creditJson);
+
+                        $nextCreditId = max($ids) + 1;
+                    }
+
+                    $trialBalanceEntry = [
+                        'id' => $nextCreditId,
+                        'title' => $applicationTitle,
+                        'application_no' => $applicationNo,
+                        'date' => $accountPaymentDate,
+                        'amount' => $formatJsonAmount($updatedScheduleItem['amount'] ?? $applicationAmount),
+                        'mode' => $normalizedPaymentMode,
+                        'created_by' => $updatedBy,
+                    ];
+
+                    $creditJson[] = $trialBalanceEntry;
+                }
+            }
+
+            $trialBalance->credit_json = $creditJson;
+            $trialBalance->updated_by = $updatedBy;
+            $trialBalance->updated_at = now();
+            $trialBalance->save();
 
             $accountManagement->applications_json = $applicationsJson;
             $accountManagement->status = 'approved';
@@ -412,12 +778,14 @@ class PaymentsHistoryController extends Controller
             return ApiResponse::success('Payment approved successfully', [
                 'account_management_id' => $accountManagement->id,
                 'application_no' => $applicationNo,
-                'deposit_installment_id' => $depositInstallment->id,
-                'deposit_installment_application_no' => $depositInstallment->application_no,
                 'account_management_status' => $accountManagement->status,
-                'approved_installment' => $installmentJson[$matchedInstallmentIndex],
+                'payment_type' => $targetType,
+                'target_record_id' => $targetRecordId,
+                'approved_schedule_item' => $updatedScheduleItem,
                 'applications_json' => $applicationsJson,
-                'installment_json' => $installmentJson,
+                'trial_balance_financial_year' => $financialYear,
+                'trial_balance_entry' => $trialBalanceEntry,
+                'trial_balance_credit_json' => $creditJson,
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -429,4 +797,5 @@ class PaymentsHistoryController extends Controller
             );
         }
     }
+
 }

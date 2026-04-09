@@ -8,22 +8,44 @@ import {
     useReactTable,
 } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
+import { Card, CardContent } from '@/components/ui/card'
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableFooter,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table'
 import { getTrialBalanceHandler } from '@/services/trialBalanceHandler'
 
-type ApiRowType =
-    | 'opening_balance'
-    | 'credit'
-    | 'debit'
-    | 'closing_balance'
-    | 'cash_in_hand'
-    | 'bank_balance'
-    | 'total'
-
-type ApiRow = {
+type TrialBalanceSummaryItem = {
     title?: string
     debit?: number | null
     credit?: number | null
-    type?: ApiRowType
+    value?: number | null
+    type?: string | null
+}
+
+type TrialBalanceApiData = {
+    financial_year?: string
+    summary?: TrialBalanceSummaryItem[]
+    opening_balance?: number
+    cash_in_hand?: number
+    bank_balance?: number
+    closing_balance?: number
+    debit_total?: number
+    credit_total?: number
+    principal_amount_total?: number
+    interest_amount_total?: number
+    difference?: number
+}
+
+type TrialBalanceApiResponse = {
+    success?: boolean
+    message?: string
+    data?: TrialBalanceApiData
 }
 
 type TrialBalanceRow = {
@@ -31,7 +53,21 @@ type TrialBalanceRow = {
     particulars: string
     debit: number
     credit: number
-    rowType: 'normal' | 'opening' | 'closing' | 'cash' | 'bank' | 'total'
+    value: number
+    rowType:
+    | 'opening'
+    | 'cash'
+    | 'bank'
+    | 'closing'
+    | 'debit'
+    | 'credit'
+    | 'debit_total'
+    | 'credit_total'
+    | 'principal_total'
+    | 'interest_total'
+    | 'difference'
+    | 'total'
+    | 'normal'
 }
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
@@ -47,280 +83,154 @@ function normalizeTitle(value: string) {
     return value.toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
-function sanitizeDisplayTitle(value: string) {
-    return value.replace(/\s*apply payment\s*$/i, '').trim()
+function getRowType(title: string, type?: string | null): TrialBalanceRow['rowType'] {
+    const normalizedType = normalizeTitle(String(type ?? ''))
+    const normalizedTitle = normalizeTitle(title)
+
+    if (normalizedType === 'opening_balance' || normalizedTitle === 'opening balance') return 'opening'
+    if (normalizedType === 'cash_in_hand' || normalizedTitle === 'cash in hand') return 'cash'
+    if (normalizedType === 'bank_balance' || normalizedTitle === 'bank balance') return 'bank'
+    if (normalizedType === 'closing_balance' || normalizedTitle === 'closing balance') return 'closing'
+    if (normalizedType === 'debit') return 'debit'
+    if (normalizedType === 'credit') return 'credit'
+    if (normalizedType === 'debit_total' || normalizedTitle === 'debit total') return 'debit_total'
+    if (normalizedType === 'credit_total' || normalizedTitle === 'credit total') return 'credit_total'
+    if (normalizedType === 'principal_total' || normalizedTitle === 'principal amount total') return 'principal_total'
+    if (normalizedType === 'interest_total' || normalizedTitle === 'interest amount total' || normalizedTitle === 'loan interest') return 'interest_total'
+    if (normalizedType === 'difference' || normalizedTitle === 'difference') return 'difference'
+    if (normalizedType === 'total' || normalizedTitle === 'total') return 'total'
+
+    return 'normal'
 }
 
-function getRowStyles(rowType: TrialBalanceRow['rowType']) {
-    switch (rowType) {
-        case 'closing':
-            return {
-                row: 'bg-[#ece8d9]',
-                particulars: 'text-[#b25d00]',
-                debit: 'text-[#d7c8ad]',
-                credit: 'text-[#d06a00]',
-            }
-        case 'cash':
-            return {
-                row: 'bg-[#d7e8e1]',
-                particulars: 'text-[#005c4b]',
-                debit: 'text-[#b7cec6]',
-                credit: 'text-[#007561]',
-            }
-        case 'bank':
-            return {
-                row: 'bg-[#ece5f0]',
-                particulars: 'text-[#92259f]',
-                debit: 'text-[#cfc2d8]',
-                credit: 'text-[#b224c2]',
-            }
-        case 'total':
-            return {
-                row: 'bg-[#04153f]',
-                particulars: 'text-white',
-                debit: 'text-white',
-                credit: 'text-white',
-            }
-        default:
-            return {
-                row: 'bg-white',
-                particulars: 'text-slate-800',
-                debit: 'text-[#b8c5d8]',
-                credit: 'text-slate-800',
-            }
+function extractTrialBalancePayload(response: unknown): TrialBalanceApiData {
+    if (!response || typeof response !== 'object') {
+        return {}
     }
+
+    const wrapped = response as TrialBalanceApiResponse
+
+    if (wrapped.data && typeof wrapped.data === 'object') {
+        return wrapped.data
+    }
+
+    return response as TrialBalanceApiData
 }
 
-const fixedParticulars = [
-    'Bank Interest Collection',
-    'Interest on Investment / Deposit',
-    'Anamat Income',
-    'Entrance Fee',
-    'Donation',
-    'Grant',
-    'Bank Charges',
-    'Stationery / Xerox Expense',
-    'Dividend / Profit Share @ 5%',
-    'Annual General Meeting Expense',
-    'Audit Department Expense',
-    'Audit Interest / Audit (Other)',
-    'Audit Interest / Audit Confirmation',
-    'Audit Fees',
-    'Permanent Deposit',
-    'Student Scholarship / Donation',
-    'Travel Expense',
-    'Interest on Permanent Deposit',
-    'Interest Paid on Fixed Deposit',
-    'Interest Paid on RD (Lakhpati Yojana)',
-    'Accounts Writing',
-    'Office Exp',
-    'Salary',
-    'Electricity',
-    'Repair & Maint.',
-    'Event Exp',
-    'Miscellaneous',
-    'Meeting Expences',
-    'Depreciation',
-    'Rent, Rates & Taxes',
-]
+function mapSummaryToRows(data: TrialBalanceApiData | undefined): TrialBalanceRow[] {
+    const summary = Array.isArray(data?.summary) ? data.summary : []
+
+    if (summary.length > 0) {
+        return summary.map((item, index) => {
+            const title = String(item?.title ?? '').trim() || `Row ${index + 1}`
+            const rowType = getRowType(title, item?.type ?? null)
+            const debit = Number(item?.debit ?? 0)
+            const credit = Number(item?.credit ?? 0)
+            const value = Number(item?.value ?? (credit > 0 ? credit : debit))
+
+            return {
+                id: index + 1,
+                particulars: title,
+                debit: Number.isFinite(debit) ? debit : 0,
+                credit: Number.isFinite(credit) ? credit : 0,
+                value: Number.isFinite(value) ? value : 0,
+                rowType,
+            }
+        })
+    }
+
+    const fallbackSummary: TrialBalanceSummaryItem[] = [
+        { title: 'Opening Balance', debit: 0, credit: Number(data?.opening_balance ?? 0), type: 'opening_balance' },
+        { title: 'Cash in Hand', debit: 0, credit: Number(data?.cash_in_hand ?? 0), type: 'cash_in_hand' },
+        { title: 'Bank Balance', debit: 0, credit: Number(data?.bank_balance ?? 0), type: 'bank_balance' },
+        { title: 'Closing Balance', debit: 0, credit: Number(data?.closing_balance ?? 0), type: 'closing_balance' },
+        { title: 'Principal Amount Total', debit: 0, credit: Number(data?.principal_amount_total ?? 0), type: 'principal_total' },
+        { title: 'Loan Interest', debit: 0, credit: Number(data?.interest_amount_total ?? 0), type: 'interest_total' },
+        { title: 'Debit Total', debit: Number(data?.debit_total ?? 0), credit: 0, type: 'debit_total' },
+        { title: 'Credit Total', debit: 0, credit: Number(data?.credit_total ?? 0), type: 'credit_total' },
+        { title: 'Difference', debit: 0, credit: Number(data?.difference ?? 0), type: 'difference' },
+        { title: 'Total', debit: Number(data?.debit_total ?? 0), credit: Number(data?.credit_total ?? 0), type: 'total' },
+    ]
+
+    return fallbackSummary.map((item, index) => {
+        const title = String(item.title ?? '').trim()
+        const rowType = getRowType(title, item.type ?? null)
+        const debit = Number(item.debit ?? 0)
+        const credit = Number(item.credit ?? 0)
+        const value = Number(item.value ?? (credit > 0 ? credit : debit))
+
+        return {
+            id: index + 1,
+            particulars: title,
+            debit,
+            credit,
+            value,
+            rowType,
+        }
+    })
+}
+
+function getKpiValue(rows: TrialBalanceRow[], title: string, fallback = 0) {
+    const found = rows.find((row) => normalizeTitle(row.particulars) === normalizeTitle(title))
+    return Number(found?.value ?? fallback)
+}
 
 export default function Page() {
-    const { data, isLoading, isError, error } = useQuery({
+    const { data: response, isLoading, isError, error } = useQuery<TrialBalanceApiResponse | TrialBalanceApiData>({
         queryKey: ['trial-balance'],
-        queryFn: () => getTrialBalanceHandler(),
+        queryFn: async () => {
+            return await getTrialBalanceHandler()
+        },
     })
 
-    const rows = React.useMemo<TrialBalanceRow[]>(() => {
-        const apiRows = Array.isArray(data?.rows) ? (data.rows as ApiRow[]) : []
+    const data = React.useMemo<TrialBalanceApiData>(() => {
+        return extractTrialBalancePayload(response)
+    }, [response])
 
-        const specialRows = {
-            opening: apiRows.find((row) => row.type === 'opening_balance'),
-            closing: apiRows.find((row) => row.type === 'closing_balance'),
-            cash: apiRows.find((row) => row.type === 'cash_in_hand'),
-            bank: apiRows.find((row) => row.type === 'bank_balance'),
-            total: apiRows.find((row) => row.type === 'total'),
-        }
+    const rows = React.useMemo<TrialBalanceRow[]>(() => mapSummaryToRows(data), [data])
 
-        const normalRows = apiRows.filter(
-            (row) =>
-                row.type !== 'opening_balance' &&
-                row.type !== 'closing_balance' &&
-                row.type !== 'cash_in_hand' &&
-                row.type !== 'bank_balance' &&
-                row.type !== 'total'
-        )
-
-        const normalMap = new Map<string, { title: string; debit: number; credit: number }>()
-
-        normalRows.forEach((row) => {
-            const title = sanitizeDisplayTitle(String(row.title ?? '').trim())
-            if (!title) {
-                return
-            }
-
-            const key = normalizeTitle(title)
-            const existing = normalMap.get(key)
-
-            if (existing) {
-                existing.debit += Number(row.debit ?? 0)
-                existing.credit += Number(row.credit ?? 0)
-            } else {
-                normalMap.set(key, {
-                    title,
-                    debit: Number(row.debit ?? 0),
-                    credit: Number(row.credit ?? 0),
-                })
-            }
-        })
-
-        const finalRows: TrialBalanceRow[] = []
-        const usedKeys = new Set<string>()
-
-        const pushRow = (
-            particulars: string,
-            debit: number,
-            credit: number,
-            rowType: TrialBalanceRow['rowType']
-        ) => {
-            finalRows.push({
-                id: finalRows.length + 1,
-                particulars,
-                debit,
-                credit,
-                rowType,
-            })
-        }
-
-        pushRow(
-            'Opening Balance',
-            Number(specialRows.opening?.debit ?? 0),
-            Number(specialRows.opening?.credit ?? 0),
-            'normal'
-        )
-
-        pushRow('Cash in Hand (Opening)', 0, 0, 'normal')
-        // pushRow('Bank Balance – Savings Account', 0, 0, 'normal')
-
-        fixedParticulars.forEach((particular) => {
-            const key = normalizeTitle(particular)
-            const match = normalMap.get(key)
-
-            pushRow(
-                particular,
-                Number(match?.debit ?? 0),
-                Number(match?.credit ?? 0),
-                'normal'
-            )
-
-            usedKeys.add(key)
-        })
-
-        normalMap.forEach((value, key) => {
-            if (usedKeys.has(key)) {
-                return
-            }
-
-            pushRow(
-                value.title,
-                Number(value.debit ?? 0),
-                Number(value.credit ?? 0),
-                'normal'
-            )
-        })
-
-        pushRow(
-            'Closing Balance',
-            Number(specialRows.closing?.debit ?? 0),
-            Number(specialRows.closing?.credit ?? 0),
-            'closing'
-        )
-
-        pushRow(
-            'Cash in Hand (Closing)',
-            Number(specialRows.cash?.debit ?? 0),
-            Number(specialRows.cash?.credit ?? 0),
-            'cash'
-        )
-
-        pushRow(
-            'Bank Balance',
-            Number(specialRows.bank?.debit ?? 0),
-            Number(specialRows.bank?.credit ?? 0),
-            'bank'
-        )
-
-        pushRow(
-            'Total',
-            Number(specialRows.total?.debit ?? 0),
-            Number(specialRows.total?.credit ?? 0),
-            'total'
-        )
-
-        return finalRows
-    }, [data])
-
-    const totalDebit = Number(data?.debit_total ?? 0)
-    const totalCredit = Number(data?.credit_total ?? 0)
-    const difference = Math.abs(Number(data?.difference ?? 0))
+    const tableRows = React.useMemo(
+        () =>
+            rows.filter(
+                (row) =>
+                    row.rowType !== 'debit_total' &&
+                    row.rowType !== 'credit_total' &&
+                    row.rowType !== 'difference' &&
+                    row.rowType !== 'total'
+            ),
+        [rows]
+    )
 
     const columns = React.useMemo<ColumnDef<TrialBalanceRow>[]>(
         () => [
             {
                 accessorKey: 'particulars',
-                header: () => (
-                    <span className="text-[13px] font-bold text-slate-600">
-                        Particulars
-                    </span>
+                header: () => <span className="text-[13px] font-semibold">Particulars</span>,
+                cell: ({ row }) => (
+                    <div className="text-[13px] font-medium text-slate-800">
+                        {row.original.particulars}
+                    </div>
                 ),
-                cell: ({ row }) => {
-                    const styles = getRowStyles(row.original.rowType)
-
-                    return (
-                        <div className={['text-[13px] font-medium', styles.particulars].join(' ')}>
-                            {row.original.particulars}
-                        </div>
-                    )
-                },
                 size: 900,
             },
             {
                 accessorKey: 'debit',
-                header: () => (
-                    <div className="text-right">
-                        <span className="text-[13px] font-bold text-slate-600">
-                            Debit
-                        </span>
+                header: () => <div className="text-right text-[13px] font-semibold">Debit</div>,
+                cell: ({ row }) => (
+                    <div className="text-right text-[13px] font-medium text-slate-800 ">
+                        {row.original.debit > 0 ? formatCurrency(row.original.debit) : '0'}
                     </div>
                 ),
-                cell: ({ row }) => {
-                    const styles = getRowStyles(row.original.rowType)
-
-                    return (
-                        <div className={['text-right text-[13px] font-semibold', styles.debit].join(' ')}>
-                            {row.original.debit > 0 ? formatCurrency(row.original.debit) : '0'}
-                        </div>
-                    )
-                },
                 size: 220,
             },
             {
                 accessorKey: 'credit',
-                header: () => (
-                    <div className="text-right">
-                        <span className="text-[13px] font-bold text-slate-600">
-                            Credit
-                        </span>
+                header: () => <div className="text-right text-[13px] font-semibold">Credit</div>,
+                cell: ({ row }) => (
+                    <div className="text-right text-[13px] font-medium text-slate-800">
+                        {row.original.credit > 0 ? formatCurrency(row.original.credit) : '0'}
                     </div>
                 ),
-                cell: ({ row }) => {
-                    const styles = getRowStyles(row.original.rowType)
-
-                    return (
-                        <div className={['text-right text-[13px] font-semibold', styles.credit].join(' ')}>
-                            {row.original.credit > 0 ? formatCurrency(row.original.credit) : '0'}
-                        </div>
-                    )
-                },
                 size: 220,
             },
         ],
@@ -328,18 +238,23 @@ export default function Page() {
     )
 
     const table = useReactTable({
-        data: rows,
+        data: tableRows,
         columns,
         getCoreRowModel: getCoreRowModel(),
     })
 
+    const debitTotal = getKpiValue(rows, 'Debit Total', Number(data?.debit_total ?? 0))
+    const creditTotal = getKpiValue(rows, 'Credit Total', Number(data?.credit_total ?? 0))
+    const bankBalance = getKpiValue(rows, 'Bank Balance', Number(data?.bank_balance ?? 0))
+    const difference = getKpiValue(rows, 'Difference', Number(data?.difference ?? 0))
+
     if (isLoading) {
-        return <div className="w-full bg-slate-50/70 p-4 md:p-6"></div>
+        return <div className="w-full p-4 md:p-6" />
     }
 
     if (isError) {
         return (
-            <div className="w-full bg-slate-50/70 p-4 md:p-6">
+            <div className="w-full p-4 md:p-6">
                 <div className="rounded-xl border border-red-200 bg-white p-4 text-sm font-medium text-red-600 shadow-sm">
                     {error instanceof Error ? error.message : 'Failed to load trial balance'}
                 </div>
@@ -348,83 +263,110 @@ export default function Page() {
     }
 
     return (
-        <div className="w-full p-4 md:p-6">
-            <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                        Total Debit
-                    </div>
-                    <div className="text-[22px] font-bold text-[#d1144f]">
-                        {formatCurrency(totalDebit)}
-                    </div>
-                </div>
+        <div className="w-full space-y-4 p-4 md:p-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <Card className="rounded-xl shadow-sm">
+                    <CardContent className="">
+                        <div className="text-lg font-bold capitalize text-slate-500">
+                            Total Debit
+                        </div>
+                        <div className=" text-[22px] font-bold text-slate-900">
+                            {formatCurrency(debitTotal)}
+                        </div>
+                    </CardContent>
+                </Card>
 
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                        Total Credit
-                    </div>
-                    <div className="text-[22px] font-bold text-[#007f68]">
-                        {formatCurrency(totalCredit)}
-                    </div>
-                </div>
+                <Card className="rounded-xl shadow-sm">
+                    <CardContent className="">
+                        <div className="text-lg font-bold capitalize text-slate-500">
+                            Total Credit
+                        </div>
+                        <div className=" text-[22px] font-bold text-slate-900">
+                            {formatCurrency(creditTotal)}
+                        </div>
+                    </CardContent>
+                </Card>
 
-                <div className="rounded-xl bg-[#04153f] p-5 shadow-sm">
-                    <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.22em] text-white/80">
-                        Balance Gap
-                    </div>
-                    <div className="text-[22px] font-bold text-white">
-                        {formatCurrency(difference)}
-                    </div>
-                </div>
+                <Card className="rounded-xl shadow-sm">
+                    <CardContent className="">
+                        <div className="text-lg font-bold capitalize text-slate-500">
+                            Bank Balance
+                        </div>
+                        <div className=" text-[22px] font-bold text-slate-900">
+                            {formatCurrency(bankBalance)}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="rounded-xl shadow-sm">
+                    <CardContent className="">
+                        <div className="text-lg font-bold capitalize text-slate-500">
+                            Final balance
+                        </div>
+                        <div className=" text-[22px] font-bold text-slate-900">
+                            {formatCurrency(difference)}
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
-                        <thead className="bg-white">
-                            {table.getHeaderGroups().map((headerGroup) => (
-                                <tr key={headerGroup.id} className="border-b border-slate-200">
-                                    {headerGroup.headers.map((header) => (
-                                        <th
-                                            key={header.id}
-                                            style={{ width: header.getSize() }}
-                                            className={[
-                                                'px-4 py-3 capitalize',
-                                                header.column.id === 'particulars' ? 'text-left' : 'text-right',
-                                            ].join(' ')}
+                <Table>
+                    <TableHeader>
+                        {table.getHeaderGroups().map((headerGroup) => (
+                            <TableRow key={headerGroup.id}>
+                                {headerGroup.headers.map((header) => (
+                                    <TableHead
+                                        key={header.id}
+                                        style={{ width: header.getSize() }}
+                                        className={header.column.id === 'particulars' ? 'text-left' : 'text-right'}
+                                    >
+                                        {header.isPlaceholder
+                                            ? null
+                                            : flexRender(header.column.columnDef.header, header.getContext())}
+                                    </TableHead>
+                                ))}
+                            </TableRow>
+                        ))}
+                    </TableHeader>
+
+                    <TableBody>
+                        {table.getRowModel().rows.length > 0 ? (
+                            table.getRowModel().rows.map((row) => (
+                                <TableRow key={row.id}>
+                                    {row.getVisibleCells().map((cell) => (
+                                        <TableCell
+                                            key={cell.id}
+                                            className={cell.column.id === 'particulars' ? 'py-3 text-left' : 'py-3 text-right'}
                                         >
-                                            {header.isPlaceholder
-                                                ? null
-                                                : flexRender(header.column.columnDef.header, header.getContext())}
-                                        </th>
+                                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                        </TableCell>
                                     ))}
-                                </tr>
-                            ))}
-                        </thead>
+                                </TableRow>
+                            ))
+                        ) : (
+                            <TableRow>
+                                <TableCell colSpan={3} className="h-24 text-center text-sm text-slate-500">
+                                    No trial balance data found
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
 
-                        <tbody>
-                            {table.getRowModel().rows.map((row) => {
-                                const styles = getRowStyles(row.original.rowType)
-
-                                return (
-                                    <tr key={row.id} className={['border-b border-slate-200', styles.row].join(' ')}>
-                                        {row.getVisibleCells().map((cell) => (
-                                            <td
-                                                key={cell.id}
-                                                className={[
-                                                    'px-4 py-2.5 align-middle',
-                                                    cell.column.id === 'particulars' ? 'text-left' : 'text-right',
-                                                ].join(' ')}
-                                            >
-                                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                            </td>
-                                        ))}
-                                    </tr>
-                                )
-                            })}
-                        </tbody>
-                    </table>
-                </div>
+                    <TableFooter>
+                        <TableRow>
+                            <TableCell className="py-5 text-left text-[13px] font-semibold text-slate-900">
+                                Total
+                            </TableCell>
+                            <TableCell className="py-5 text-right text-[13px] font-semibold text-slate-900">
+                                {debitTotal > 0 ? formatCurrency(debitTotal) : '0'}
+                            </TableCell>
+                            <TableCell className="py-5 text-right text-[13px] font-semibold text-slate-900">
+                                {creditTotal > 0 ? formatCurrency(creditTotal) : '0'}
+                            </TableCell>
+                        </TableRow>
+                    </TableFooter>
+                </Table>
             </div>
         </div>
     )

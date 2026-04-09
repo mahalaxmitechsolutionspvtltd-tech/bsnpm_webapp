@@ -27,18 +27,13 @@ import {
     ShieldCheck,
     Loader2,
 } from 'lucide-react'
-import type {
-    PaymentHistoryDialogItem,
-    PaymentHistoryTableItem,
-} from '@/types/paymentsTypes'
 import { formatApiDate } from '@/lib/formateApiDate'
 import { approvePaymentStatusHandler } from '@/services/paymentHistoryHandler'
-
 
 interface ViewProps {
     open: boolean
     onOpenChange: (open: boolean) => void
-    data: PaymentHistoryTableItem | PaymentHistoryDialogItem | null
+    data: any
 }
 
 const toDate = (value: unknown) => {
@@ -121,6 +116,18 @@ const isPdfFile = (value: string | null | undefined) => {
     return /\.pdf(\?.*)?$/i.test(value)
 }
 
+const formatPaymentMode = (value: unknown) => {
+    const raw = String(value ?? '').trim()
+    if (!raw) return '-'
+
+    return raw
+        .replace(/_/g, ' ')
+        .replace(/\s*\(\s*already\s+paid\s*\)\s*/gi, '')
+        .replace(/\s*\(\s*cash\s+paid\s*\)\s*/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+}
+
 const StatCard = ({
     label,
     value,
@@ -131,7 +138,7 @@ const StatCard = ({
     icon?: React.ReactNode
 }) => {
     return (
-        <div className='rounded-xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 px-4 py-3 shadow-xs'>
+        <div className='rounded-xl border border-slate-200/80 bg-linear-to-br from-white to-slate-50 px-4 py-3 shadow-xs'>
             <div className='flex items-center justify-between gap-3'>
                 <div className='text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500'>
                     {label}
@@ -255,8 +262,8 @@ function ProofPreviewDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className='w-[50vw] h-[80vh] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-2xl sm:max-w-6xl'>
-                <DialogHeader className='border-b border-slate-200 bg-gradient-to-r from-white via-slate-50 to-white px-4 py-4 sm:px-5'>
+            <DialogContent className='h-[80vh] w-[50vw] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-2xl sm:max-w-6xl'>
+                <DialogHeader className='border-b border-slate-200 bg-linear-to-r from-white via-slate-50 to-white px-4 py-4 sm:px-5'>
                     <DialogTitle className='text-[18px] font-semibold tracking-tight text-slate-900'>
                         Payment Proof
                     </DialogTitle>
@@ -336,30 +343,71 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
         setInlinePreviewFailed(false)
     }, [open, data])
 
-    const resolved: PaymentHistoryDialogItem | PaymentHistoryTableItem | null = data ?? null
+    const resolved = data ?? null
+
+    const groupedPayments = Array.isArray(resolved?.payments) ? resolved.payments : []
+    const latestGroupedPayment = groupedPayments.length > 0 ? groupedPayments[groupedPayments.length - 1] : null
+    const firstProofPayment = groupedPayments.find(
+        (payment: any) =>
+            getSafeValue(
+                payment?.proof_file_url,
+                payment?.proof_file,
+                payment?.proof?.file_url,
+                payment?.raw?.proof_file_url,
+                payment?.raw?.proof_file
+            )
+    )
 
     const approvePaymentMutation = useMutation({
         mutationFn: async () => {
-            if (!resolved?.id) {
-                throw new Error('Account management id not found')
+            const approvalItems = new Map<string, { id: number; application_no: string }>()
+
+            if (groupedPayments.length > 0) {
+                for (const payment of groupedPayments) {
+                    const id = Number(payment?.account_management_id ?? payment?.id ?? 0)
+                    const applicationNo =
+                        getSafeValue(
+                            payment?.application_no,
+                            payment?.application_details?.application_no
+                        ) ?? ''
+
+                    if (id > 0 && applicationNo) {
+                        approvalItems.set(`${id}__${applicationNo}`, {
+                            id,
+                            application_no: applicationNo,
+                        })
+                    }
+                }
+            } else {
+                const id = Number(resolved?.account_management_id ?? resolved?.id ?? 0)
+                const applicationNo =
+                    getSafeValue(
+                        resolved?.application_no,
+                        resolved?.application_details?.application_no,
+                        resolved?.raw?.application_no,
+                        resolved?.raw?.application_details?.application_no
+                    ) ?? ''
+
+                if (id > 0 && applicationNo) {
+                    approvalItems.set(`${id}__${applicationNo}`, {
+                        id,
+                        application_no: applicationNo,
+                    })
+                }
             }
 
-            const applicationNo =
-                getSafeValue(
-                    (resolved as any)?.application_no,
-                    (resolved as any)?.application_details?.application_no,
-                    (resolved as any)?.raw?.application_no,
-                    (resolved as any)?.raw?.application_details?.application_no
-                ) ?? ''
-
-            if (!applicationNo) {
+            if (!approvalItems.size) {
                 throw new Error('Application number not found')
             }
 
-            return approvePaymentStatusHandler(resolved.id, {
-                application_no: applicationNo,
-                updated_by: 'admin',
-            })
+            return Promise.all(
+                Array.from(approvalItems.values()).map((item) =>
+                    approvePaymentStatusHandler(item.id, {
+                        application_no: item.application_no,
+                        updated_by: 'admin',
+                    })
+                )
+            )
         },
         onSuccess: () => {
             onOpenChange(false)
@@ -369,7 +417,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
     if (!resolved) {
         return (
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className='w-[50vw] h-[80vh] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-2xl sm:max-w-5xl'>
+                <DialogContent className='h-[80vh] w-[50vw] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-2xl sm:max-w-5xl'>
                     <DialogHeader className='border-b border-slate-200 px-5 py-4'>
                         <DialogTitle className='text-[20px] font-semibold text-slate-900'>
                             Submission Details
@@ -381,34 +429,43 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
         )
     }
 
-    const raw = (resolved as any)?.raw ?? {}
-    const proof = (resolved as any)?.proof ?? {}
+    const raw = resolved?.raw ?? {}
+    const proof = resolved?.proof ?? {}
     const paymentDetails = raw?.payment_details ?? {}
     const applicationDetails =
-        (resolved as any)?.application_details ??
+        resolved?.application_details ??
         raw?.application_details ??
+        latestGroupedPayment?.application_details ??
         {}
 
     const memberName =
         getSafeValue(
-            (resolved as any)?.member_name,
-            (resolved as any)?.member?.member_name,
+            resolved?.member_name,
+            resolved?.member?.member_name,
             raw?.member_name,
+            latestGroupedPayment?.member_name,
             applicationDetails?.member_name,
             paymentDetails?.member_name
         ) ?? '-'
 
     const memberId =
         getSafeValue(
-            (resolved as any)?.member_id,
-            (resolved as any)?.member?.member_id,
+            resolved?.member_id,
+            resolved?.member?.member_id,
             raw?.member_id,
+            latestGroupedPayment?.member_id,
             paymentDetails?.member_id
         ) ?? '-'
 
+    const groupedTotalAmount = groupedPayments.reduce(
+        (sum: number, payment: any) => sum + Number(payment?.amount ?? 0),
+        0
+    )
+
     const totalAmount = getNumberOrStringValue(
-        (resolved as any)?.total_amount,
-        (resolved as any)?.amount,
+        resolved?.total_amount,
+        groupedPayments.length > 0 ? groupedTotalAmount : null,
+        resolved?.amount,
         raw?.total_amount,
         raw?.amount,
         applicationDetails?.amount,
@@ -417,15 +474,20 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
 
     const status =
         getSafeValue(
-            (resolved as any)?.status,
+            resolved?.status,
             raw?.status,
+            latestGroupedPayment?.status,
             paymentDetails?.status
         ) ?? '-'
 
     const datePaid = getSafeValue(
-        (resolved as any)?.date_paid,
-        (resolved as any)?.date_of_payment,
-        (resolved as any)?.submitted_on,
+        resolved?.date_paid,
+        resolved?.date_of_payment,
+        resolved?.submitted_on,
+        latestGroupedPayment?.date_paid,
+        latestGroupedPayment?.date_of_payment,
+        latestGroupedPayment?.submitted_on,
+        latestGroupedPayment?.submitted_at,
         raw?.date_of_payment,
         raw?.date_paid,
         raw?.created_at,
@@ -434,42 +496,50 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
 
     const paymentMode =
         getSafeValue(
-            (resolved as any)?.payment_mode,
+            resolved?.payment_mode,
             raw?.payment_mode,
+            latestGroupedPayment?.payment_mode,
             applicationDetails?.payment_mode,
             paymentDetails?.payment_mode
         ) ?? '-'
 
     const remark =
         getSafeValue(
-            (resolved as any)?.remark,
+            resolved?.remark,
             raw?.remark,
+            latestGroupedPayment?.remark,
             paymentDetails?.remark
         ) ?? 'No remark added'
 
     const referenceTrn =
         getSafeValue(
-            (resolved as any)?.reference_trn,
+            resolved?.reference_trn,
             raw?.reference_trn,
+            latestGroupedPayment?.reference_trn,
             raw?.utr,
             paymentDetails?.reference_trn
         ) ?? '-'
 
     const submittedAt =
         getSafeValue(
-            (resolved as any)?.submitted_at,
+            resolved?.submitted_at,
+            latestGroupedPayment?.submitted_at,
+            latestGroupedPayment?.created_at,
             raw?.submitted_at,
             raw?.created_at,
             paymentDetails?.created_at,
-            (resolved as any)?.created_at
+            resolved?.created_at
         ) ?? '-'
 
     const proofFileUrl =
         getSafeValue(
-            (resolved as any)?.proof_file_url,
-            (resolved as any)?.proof_file,
+            resolved?.proof_file_url,
+            resolved?.proof_file,
             proof?.file_url,
             proof?.url,
+            firstProofPayment?.proof_file_url,
+            firstProofPayment?.proof_file,
+            firstProofPayment?.proof?.file_url,
             raw?.proof_file_url,
             raw?.proof_file,
             raw?.proof?.file_url,
@@ -479,8 +549,10 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
 
     const proofFileName =
         getSafeValue(
-            (resolved as any)?.proof_file_name,
+            resolved?.proof_file_name,
             proof?.file_name,
+            firstProofPayment?.proof_file_name,
+            firstProofPayment?.proof?.file_name,
             raw?.proof_file_name,
             raw?.proof?.file_name
         ) ??
@@ -491,15 +563,78 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
     const proofIsImage = isImageFile(proofFileUrl)
     const proofIsPdf = isPdfFile(proofFileUrl)
 
+    const schemeHeading =
+        getSafeValue(
+            resolved?.schemeLabel,
+            resolved?.scheme,
+            latestGroupedPayment?.application_details?.title,
+            latestGroupedPayment?.title,
+            applicationDetails?.title
+        ) ?? 'Payment Details'
+
+    const breakdownRows = groupedPayments.length > 0
+        ? groupedPayments.map((payment: any, index: number) => ({
+            key: `${payment?.account_management_id ?? payment?.id ?? 'payment'}-${payment?.application_no ?? payment?.application_details?.application_no ?? index}`,
+            date:
+                getSafeValue(
+                    payment?.date_of_payment,
+                    payment?.submitted_on,
+                    payment?.submitted_at
+                ) ?? '-',
+            applicationNo:
+                getSafeValue(
+                    payment?.application_no,
+                    payment?.application_details?.application_no
+                ) ?? '-',
+            amount: getNumberOrStringValue(
+                payment?.amount,
+                payment?.application_details?.amount
+            ),
+            status:
+                getSafeValue(
+                    payment?.status
+                ) ?? '-',
+            mode: formatPaymentMode(
+                getSafeValue(
+                    payment?.payment_mode
+                ) ?? paymentMode
+            ),
+        }))
+        : [
+            {
+                key: 'single-payment-row',
+                date:
+                    getSafeValue(
+                        resolved?.date_of_payment,
+                        resolved?.submitted_on,
+                        resolved?.submitted_at
+                    ) ?? '-',
+                applicationNo:
+                    getSafeValue(
+                        resolved?.application_no,
+                        applicationDetails?.application_no
+                    ) ?? '-',
+                amount: getNumberOrStringValue(
+                    resolved?.amount,
+                    applicationDetails?.amount
+                ),
+                status:
+                    getSafeValue(
+                        resolved?.status
+                    ) ?? '-',
+                mode: formatPaymentMode(paymentMode),
+            },
+        ]
+
     return (
         <>
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className='w-[55vw] h-[80vh] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-2xl sm:max-w-5xl'>
+                <DialogContent className='h-[80vh] w-[55vw] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-2xl sm:max-w-5xl'>
                     <DialogHeader className='border-b border-slate-200 bg-linear-to-r from-white via-slate-50 to-white px-4 py-4 sm:px-5'>
-                        <DialogTitle className='text-[18px] sm:text-[20px] font-semibold tracking-tight text-slate-900'>
+                        <DialogTitle className='text-[18px] font-semibold tracking-tight text-slate-900 sm:text-[20px]'>
                             Submission Details
                         </DialogTitle>
-                        <p className='text-[12px] sm:text-[13px] text-slate-500'>
+                        <p className='text-[12px] text-slate-500 sm:text-[13px]'>
                             Review member payments submission and take action
                         </p>
                     </DialogHeader>
@@ -507,7 +642,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                     {!resolved ? (
                         <DialogSkeleton />
                     ) : (
-                        <div className='max-h-[80vh] overflow-y-auto px-4  sm:px-5'>
+                        <div className='max-h-[80vh] overflow-y-auto px-4 sm:px-5'>
                             <div className='grid gap-4'>
                                 <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'>
                                     <StatCard
@@ -556,48 +691,61 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                         <div className='overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs'>
                                             <SectionTitle
                                                 title='Scheme Breakdown'
-                                                subtitle='Primary payment information'
+                                                subtitle={schemeHeading}
                                                 icon={<Landmark className='h-4 w-4' />}
                                             />
 
                                             <div className='overflow-x-auto'>
-                                                <table className='w-full min-w-135'>
+                                                <table className='w-full min-w-140'>
                                                     <thead className='bg-slate-50'>
                                                         <tr className='border-b border-slate-200'>
-                                                            <th className='px-2  text-left text-[11px] font-semibold text-slate-500'>
-                                                                Scheme
+                                                            <th className='px-3 py-2 text-left text-[11px] font-semibold text-slate-500'>
+                                                                Date
                                                             </th>
-                                                            <th className='px-2  py-2 text-left text-[11px] font-semibold text-slate-500'>
+                                                            <th className='px-3 py-2 text-left text-[11px] font-semibold text-slate-500'>
                                                                 Application No
                                                             </th>
-                                                            <th className='px-2  py-2 text-left text-[11px] font-semibold text-slate-500'>
+                                                            <th className='px-3 py-2 text-left text-[11px] font-semibold text-slate-500'>
                                                                 Amount
                                                             </th>
-                                                            <th className='px-2 py-2  text-left text-[11px] font-semibold text-slate-500'>
+                                                            <th className='px-3 py-2 text-left text-[11px] font-semibold text-slate-500'>
+                                                                Status
+                                                            </th>
+                                                            <th className='px-3 py-2 text-left text-[11px] font-semibold text-slate-500'>
                                                                 Mode
                                                             </th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        <tr className='align-middle'>
-                                                            <td className='px-4 py-3 text-[13px] font-medium text-slate-800'>
-                                                                {applicationDetails?.title ?? '-'}
-                                                            </td>
-                                                            <td className='px-4 py-3 text-[13px] text-slate-700'>
-                                                                {applicationDetails?.application_no ??
-                                                                    (resolved as any)?.application_no ??
-                                                                    '-'}
-                                                            </td>
-                                                            <td className='px-4 py-3 text-[13px] font-semibold text-slate-900'>
-                                                                ₹ {formatCurrency(
-                                                                    applicationDetails?.amount ??
-                                                                    (resolved as any)?.amount
-                                                                )}
-                                                            </td>
-                                                            <td className='px-4 py-3 text-[13px] capitalize text-slate-700'>
-                                                                {paymentMode}
-                                                            </td>
-                                                        </tr>
+                                                        {breakdownRows.map((row: any) => (
+                                                            <tr
+                                                                key={row.key}
+                                                                className='border-b border-slate-100 align-middle last:border-b-0'
+                                                            >
+                                                                <td className='px-3 py-3 text-[13px] font-medium text-slate-800'>
+                                                                    {formatDateDisplay(row.date)}
+                                                                </td>
+                                                                <td className='px-3 py-3 text-[13px] text-slate-700'>
+                                                                    {row.applicationNo}
+                                                                </td>
+                                                                <td className='px-3 py-3 text-[13px] font-semibold text-slate-900'>
+                                                                    ₹ {formatCurrency(row.amount)}
+                                                                </td>
+                                                                <td className='px-3 py-3 text-[13px]'>
+                                                                    <Badge
+                                                                        className={cn(
+                                                                            'rounded-full border px-2.5 py-0.5 text-[11px] font-semibold capitalize',
+                                                                            getStatusTone(row.status)
+                                                                        )}
+                                                                    >
+                                                                        {row.status}
+                                                                    </Badge>
+                                                                </td>
+                                                                <td className='px-3 py-3 text-[13px] capitalize text-slate-700'>
+                                                                    {row.mode}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
                                                     </tbody>
                                                 </table>
                                             </div>
@@ -611,7 +759,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                             />
 
                                             <div className='p-4'>
-                                                <div className='rounded-md bg-slate-100 px-4 py-2  text-[14px] italic text-slate-700'>
+                                                <div className='rounded-md bg-slate-100 px-4 py-2 text-[14px] italic text-slate-700'>
                                                     {remark}
                                                 </div>
 
@@ -622,7 +770,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                                     />
                                                     <DetailRow
                                                         label='Submitted At'
-                                                        value={formatApiDate(submittedAt)}
+                                                        value={submittedAt === '-' ? '-' : formatApiDate(submittedAt)}
                                                     />
                                                 </div>
                                             </div>
@@ -631,7 +779,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
 
                                     <div className='overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs'>
                                         <div className='p-4'>
-                                            <div className='flex h-50 sm:h-64 md:h-72 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50'>
+                                            <div className='flex h-50 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:h-64 md:h-72'>
                                                 {!proofFileUrl ? (
                                                     <div className='text-center'>
                                                         <ImageIcon className='mx-auto h-8 w-8 text-slate-300' />
@@ -653,9 +801,9 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                                         className='h-full w-full bg-white'
                                                     />
                                                 ) : (
-                                                    <div className='text-center px-4'>
+                                                    <div className='px-4 text-center'>
                                                         <FileText className='mx-auto h-10 w-10 text-slate-400' />
-                                                        <div className='mt-3 text-[13px] font-medium text-slate-700 break-all'>
+                                                        <div className='mt-3 break-all text-[13px] font-medium text-slate-700'>
                                                             {proofFileName ?? 'Proof file attached'}
                                                         </div>
                                                         <div className='mt-1 text-[12px] text-slate-500'>
