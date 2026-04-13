@@ -9,6 +9,15 @@ import {
 } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select'
 import {
     Table,
     TableBody,
@@ -18,6 +27,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table'
+import { Download } from 'lucide-react'
 import { getTrialBalanceHandler } from '@/services/trialBalanceHandler'
 
 type TrialBalanceSummaryItem = {
@@ -70,6 +80,11 @@ type TrialBalanceRow = {
     | 'normal'
 }
 
+type FinancialYearOption = {
+    value: string
+    label: string
+}
+
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -77,6 +92,10 @@ const currencyFormatter = new Intl.NumberFormat('en-IN', {
 
 function formatCurrency(value: number) {
     return `₹ ${currencyFormatter.format(Number.isFinite(value) ? value : 0)}`
+}
+
+function formatCurrencyForExport(value: number) {
+    return `Rs. ${currencyFormatter.format(Number.isFinite(value) ? value : 0)}`
 }
 
 function normalizeTitle(value: string) {
@@ -175,11 +194,128 @@ function getKpiValue(rows: TrialBalanceRow[], title: string, fallback = 0) {
     return Number(found?.value ?? fallback)
 }
 
+function getBottomSummaryRowClass(rowType: TrialBalanceRow['rowType']) {
+    if (rowType === 'opening') return 'bg-sky-50/80'
+    if (rowType === 'cash') return 'bg-emerald-50/80'
+    if (rowType === 'bank') return 'bg-violet-50/80'
+    if (rowType === 'closing') return 'bg-amber-50/80'
+    return ''
+}
+
+function shouldHideMarkedRowZero(rowType: TrialBalanceRow['rowType']) {
+    return rowType === 'opening' || rowType === 'cash' || rowType === 'bank' || rowType === 'closing'
+}
+
+function formatBodyCellValue(value: number, rowType: TrialBalanceRow['rowType']) {
+    if (value > 0) {
+        return formatCurrency(value)
+    }
+
+    if (shouldHideMarkedRowZero(rowType)) {
+        return ''
+    }
+
+    return '0'
+}
+
+function getCurrentFinancialYear() {
+    const today = new Date()
+    const month = today.getMonth() + 1
+    const year = today.getFullYear()
+
+    if (month >= 4) {
+        return `${year}-${String(year + 1).slice(-2)}`
+    }
+
+    return `${year - 1}-${String(year).slice(-2)}`
+}
+
+function buildFinancialYearOptions(totalYears = 6): FinancialYearOption[] {
+    const currentFinancialYear = getCurrentFinancialYear()
+    const startYear = Number(currentFinancialYear.split('-')[0])
+
+    return Array.from({ length: totalYears }).map((_, index) => {
+        const fyStart = startYear - index
+        const fyEnd = fyStart + 1
+        const value = `${fyStart}-${String(fyEnd).slice(-2)}`
+        const label = value
+
+        return { value, label }
+    })
+}
+
+function escapeHtml(value: string) {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;')
+}
+
+function TrialBalanceSkeleton() {
+    return (
+        <div className="w-full space-y-4 p-4 md:p-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, index) => (
+                    <Card key={index} className="rounded-xl shadow-sm">
+                        <CardContent>
+                            <Skeleton className="h-6 w-32" />
+                            <Skeleton className="mt-3 h-8 w-40" />
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+
+            <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+                <div className="flex w-full flex-col gap-2 sm:w-auto">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-10 w-full min-w-[220px] md:w-[260px]" />
+                </div>
+
+                <div className="my-auto">
+                    <Skeleton className="h-10 w-28 rounded-xl" />
+                </div>
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className="p-4">
+                    <div className="grid grid-cols-3 gap-4 border-b border-slate-200 pb-4">
+                        <Skeleton className="h-5 w-28" />
+                        <Skeleton className="ml-auto h-5 w-20" />
+                        <Skeleton className="ml-auto h-5 w-20" />
+                    </div>
+
+                    <div className="space-y-4 py-4">
+                        {Array.from({ length: 12 }).map((_, index) => (
+                            <div key={index} className="grid grid-cols-3 gap-4 items-center">
+                                <Skeleton className="h-5 w-64" />
+                                <Skeleton className="ml-auto h-5 w-24" />
+                                <Skeleton className="ml-auto h-5 w-24" />
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4 border-t border-slate-200 pt-4">
+                        <Skeleton className="h-5 w-20" />
+                        <Skeleton className="ml-auto h-5 w-24" />
+                        <Skeleton className="ml-auto h-5 w-24" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export default function Page() {
-    const { data: response, isLoading, isError, error } = useQuery<TrialBalanceApiResponse | TrialBalanceApiData>({
-        queryKey: ['trial-balance'],
+    const financialYearOptions = React.useMemo(() => buildFinancialYearOptions(), [])
+    const [selectedFinancialYear, setSelectedFinancialYear] = React.useState<string>(getCurrentFinancialYear())
+
+    const { data: response, isLoading, isFetching, isError, error } = useQuery<TrialBalanceApiResponse | TrialBalanceApiData>({
+        queryKey: ['trial-balance', selectedFinancialYear],
         queryFn: async () => {
-            return await getTrialBalanceHandler()
+            const handler = getTrialBalanceHandler as unknown as (params?: { financial_year?: string }) => Promise<TrialBalanceApiResponse | TrialBalanceApiData>
+            return await handler({ financial_year: selectedFinancialYear })
         },
     })
 
@@ -189,16 +325,37 @@ export default function Page() {
 
     const rows = React.useMemo<TrialBalanceRow[]>(() => mapSummaryToRows(data), [data])
 
-    const tableRows = React.useMemo(
+    const specialBottomRows = React.useMemo(
         () =>
             rows.filter(
                 (row) =>
+                    row.rowType === 'opening' ||
+                    row.rowType === 'cash' ||
+                    row.rowType === 'bank' ||
+                    row.rowType === 'closing'
+            ),
+        [rows]
+    )
+
+    const mainTableRows = React.useMemo(
+        () =>
+            rows.filter(
+                (row) =>
+                    row.rowType !== 'opening' &&
+                    row.rowType !== 'cash' &&
+                    row.rowType !== 'bank' &&
+                    row.rowType !== 'closing' &&
                     row.rowType !== 'debit_total' &&
                     row.rowType !== 'credit_total' &&
                     row.rowType !== 'difference' &&
                     row.rowType !== 'total'
             ),
         [rows]
+    )
+
+    const displayRows = React.useMemo(
+        () => [...mainTableRows, ...specialBottomRows],
+        [mainTableRows, specialBottomRows]
     )
 
     const columns = React.useMemo<ColumnDef<TrialBalanceRow>[]>(
@@ -217,8 +374,8 @@ export default function Page() {
                 accessorKey: 'debit',
                 header: () => <div className="text-right text-[13px] font-semibold">Debit</div>,
                 cell: ({ row }) => (
-                    <div className="text-right text-[13px] font-medium text-slate-800 ">
-                        {row.original.debit > 0 ? formatCurrency(row.original.debit) : '0'}
+                    <div className="min-h-5 text-right text-[13px] font-medium text-slate-800">
+                        {formatBodyCellValue(row.original.debit, row.original.rowType)}
                     </div>
                 ),
                 size: 220,
@@ -227,8 +384,8 @@ export default function Page() {
                 accessorKey: 'credit',
                 header: () => <div className="text-right text-[13px] font-semibold">Credit</div>,
                 cell: ({ row }) => (
-                    <div className="text-right text-[13px] font-medium text-slate-800">
-                        {row.original.credit > 0 ? formatCurrency(row.original.credit) : '0'}
+                    <div className="min-h-5 text-right text-[13px] font-medium text-slate-800">
+                        {formatBodyCellValue(row.original.credit, row.original.rowType)}
                     </div>
                 ),
                 size: 220,
@@ -238,7 +395,7 @@ export default function Page() {
     )
 
     const table = useReactTable({
-        data: tableRows,
+        data: displayRows,
         columns,
         getCoreRowModel: getCoreRowModel(),
     })
@@ -248,8 +405,100 @@ export default function Page() {
     const bankBalance = getKpiValue(rows, 'Bank Balance', Number(data?.bank_balance ?? 0))
     const difference = getKpiValue(rows, 'Difference', Number(data?.difference ?? 0))
 
-    if (isLoading) {
-        return <div className="w-full p-4 md:p-6" />
+    const handleExportExcel = React.useCallback(() => {
+        const selectedFinancialYearLabel =
+            financialYearOptions.find((item) => item.value === selectedFinancialYear)?.label ?? selectedFinancialYear
+
+        const kpiRows = [
+            ['Total Debit', formatCurrencyForExport(debitTotal)],
+            ['Total Credit', formatCurrencyForExport(creditTotal)],
+            ['Bank Balance', formatCurrencyForExport(bankBalance)],
+            ['Final Balance', formatCurrencyForExport(difference)],
+            ['Financial Year', selectedFinancialYearLabel],
+        ]
+
+        const tableRowsForExport = [
+            ...displayRows.map((row) => [
+                row.particulars,
+                row.debit > 0 ? formatCurrencyForExport(row.debit) : '',
+                row.credit > 0 ? formatCurrencyForExport(row.credit) : '',
+            ]),
+            ['Total', debitTotal > 0 ? formatCurrencyForExport(debitTotal) : '0', creditTotal > 0 ? formatCurrencyForExport(creditTotal) : '0'],
+        ]
+
+        const kpiTableHtml = `
+            <table border="1">
+                <thead>
+                    <tr>
+                        <th colspan="2">Trial Balance Summary</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${kpiRows
+                .map(
+                    (row) =>
+                        `<tr><td>${escapeHtml(String(row[0]))}</td><td>${escapeHtml(String(row[1]))}</td></tr>`
+                )
+                .join('')}
+                </tbody>
+            </table>
+        `
+
+        const mainTableHtml = `
+            <table border="1">
+                <thead>
+                    <tr>
+                        <th>Particulars</th>
+                        <th>Debit</th>
+                        <th>Credit</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRowsForExport
+                .map(
+                    (row) =>
+                        `<tr><td>${escapeHtml(String(row[0]))}</td><td>${escapeHtml(String(row[1]))}</td><td>${escapeHtml(String(row[2]))}</td></tr>`
+                )
+                .join('')}
+                </tbody>
+            </table>
+        `
+
+        const workbookHtml = `
+            <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+                <head>
+                    <meta charset="UTF-8" />
+                    <meta name="ProgId" content="Excel.Sheet" />
+                    <meta name="Generator" content="Microsoft Excel 15" />
+                    <style>
+                        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+                        th, td { border: 1px solid #d1d5db; padding: 8px; font-family: Arial, sans-serif; font-size: 12px; }
+                        th { font-weight: 700; }
+                    </style>
+                </head>
+                <body>
+                    ${kpiTableHtml}
+                    ${mainTableHtml}
+                </body>
+            </html>
+        `
+
+        const blob = new Blob(['\ufeff', workbookHtml], {
+            type: 'application/vnd.ms-excel;charset=utf-8;',
+        })
+
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `trial-balance-${selectedFinancialYear}.xls`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+    }, [bankBalance, creditTotal, debitTotal, difference, displayRows, financialYearOptions, selectedFinancialYear])
+
+    if (isLoading || isFetching) {
+        return <TrialBalanceSkeleton />
     }
 
     if (isError) {
@@ -266,48 +515,75 @@ export default function Page() {
         <div className="w-full space-y-4 p-4 md:p-6">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Card className="rounded-xl shadow-sm">
-                    <CardContent className="">
+                    <CardContent>
                         <div className="text-lg font-bold capitalize text-slate-500">
                             Total Debit
                         </div>
-                        <div className=" text-[22px] font-bold text-slate-900">
+                        <div className="text-[22px] font-bold text-slate-900">
                             {formatCurrency(debitTotal)}
                         </div>
                     </CardContent>
                 </Card>
 
                 <Card className="rounded-xl shadow-sm">
-                    <CardContent className="">
+                    <CardContent>
                         <div className="text-lg font-bold capitalize text-slate-500">
                             Total Credit
                         </div>
-                        <div className=" text-[22px] font-bold text-slate-900">
+                        <div className="text-[22px] font-bold text-slate-900">
                             {formatCurrency(creditTotal)}
                         </div>
                     </CardContent>
                 </Card>
 
                 <Card className="rounded-xl shadow-sm">
-                    <CardContent className="">
+                    <CardContent>
                         <div className="text-lg font-bold capitalize text-slate-500">
                             Bank Balance
                         </div>
-                        <div className=" text-[22px] font-bold text-slate-900">
+                        <div className="text-[22px] font-bold text-slate-900">
                             {formatCurrency(bankBalance)}
                         </div>
                     </CardContent>
                 </Card>
 
                 <Card className="rounded-xl shadow-sm">
-                    <CardContent className="">
+                    <CardContent>
                         <div className="text-lg font-bold capitalize text-slate-500">
                             Final balance
                         </div>
-                        <div className=" text-[22px] font-bold text-slate-900">
+                        <div className="text-[22px] font-bold text-slate-900">
                             {formatCurrency(difference)}
                         </div>
                     </CardContent>
                 </Card>
+            </div>
+
+            <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+                <div className="my-auto flex w-full flex-col gap-2 sm:w-auto">
+                    <div className="text-sm font-medium text-slate-600">
+                        Financial Year
+                    </div>
+                    <Select value={selectedFinancialYear} onValueChange={setSelectedFinancialYear}>
+                        <SelectTrigger className="w-full min-w-55 rounded-xl md:w-65">
+                            <SelectValue placeholder="Select financial year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {financialYearOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="my-auto">
+                    <Button type="button" className="mt-7 gap-2 rounded-xl" onClick={handleExportExcel}>
+                        <Download className="h-4 w-4" />
+                        Export
+                    </Button>
+                </div>
             </div>
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -333,7 +609,10 @@ export default function Page() {
                     <TableBody>
                         {table.getRowModel().rows.length > 0 ? (
                             table.getRowModel().rows.map((row) => (
-                                <TableRow key={row.id}>
+                                <TableRow
+                                    key={row.id}
+                                    className={getBottomSummaryRowClass(row.original.rowType)}
+                                >
                                     {row.getVisibleCells().map((cell) => (
                                         <TableCell
                                             key={cell.id}

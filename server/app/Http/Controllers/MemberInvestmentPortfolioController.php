@@ -17,14 +17,12 @@ class MemberInvestmentPortfolioController extends Controller
                 'id',
                 'member_id',
                 'member_name',
-                'member_email',
                 'applications_json',
             ])
             ->when($search !== '', function ($query) use ($search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('member_id', 'like', "%{$search}%")
                         ->orWhere('member_name', 'like', "%{$search}%")
-                        ->orWhere('member_email', 'like', "%{$search}%")
                         ->orWhere('applications_json', 'like', "%{$search}%");
                 });
             })
@@ -36,7 +34,6 @@ class MemberInvestmentPortfolioController extends Controller
         foreach ($rows as $row) {
             $memberId = trim((string) ($row->member_id ?? ''));
             $memberName = trim((string) ($row->member_name ?? ''));
-            $memberEmail = trim((string) ($row->member_email ?? ''));
 
             if ($memberId === '') {
                 continue;
@@ -46,7 +43,7 @@ class MemberInvestmentPortfolioController extends Controller
                 $members[$memberId] = [
                     'member_id' => $memberId,
                     'member_name' => $memberName,
-                    'member_email' => $memberEmail,
+                    'member_email' => '',
                     'rd' => 0,
                     'fd' => 0,
                     'td' => 0,
@@ -85,7 +82,7 @@ class MemberInvestmentPortfolioController extends Controller
                     continue;
                 }
 
-                if ($status !== '' && !in_array($status, ['approved', 'paid', 'completed', 'success'])) {
+                if ($status !== '' && !in_array($status, ['approved', 'paid', 'completed', 'success'], true)) {
                     continue;
                 }
 
@@ -137,16 +134,16 @@ class MemberInvestmentPortfolioController extends Controller
         }
 
         $members = array_values(array_map(function ($member) {
-            $member['rd'] = round($member['rd'], 2);
-            $member['fd'] = round($member['fd'], 2);
-            $member['td'] = round($member['td'], 2);
-            $member['ly'] = round($member['ly'], 2);
-            $member['dd'] = round($member['dd'], 2);
-            $member['share'] = round($member['share'], 2);
-            $member['emergency'] = round($member['emergency'], 2);
-            $member['loan_amt'] = round($member['loan_amt'], 2);
-            $member['loan_out'] = round(max($member['loan_amt'] - 0, 0), 2);
-            $member['kayam_thev'] = round($member['kayam_thev'], 2);
+            $member['rd'] = round((float) $member['rd'], 2);
+            $member['fd'] = round((float) $member['fd'], 2);
+            $member['td'] = round((float) $member['td'], 2);
+            $member['ly'] = round((float) $member['ly'], 2);
+            $member['dd'] = round((float) $member['dd'], 2);
+            $member['share'] = round((float) $member['share'], 2);
+            $member['emergency'] = round((float) $member['emergency'], 2);
+            $member['loan_amt'] = round((float) $member['loan_amt'], 2);
+            $member['loan_out'] = round(max((float) $member['loan_amt'], 0), 2);
+            $member['kayam_thev'] = round((float) $member['kayam_thev'], 2);
 
             return $member;
         }, $members));
@@ -176,10 +173,10 @@ class MemberInvestmentPortfolioController extends Controller
 
         if (is_string($amount)) {
             $clean = preg_replace('/[^\d.\-]/', '', $amount);
-            return is_numeric($clean) ? round((float) $clean, 2) : 0;
+            return is_numeric($clean) ? round((float) $clean, 2) : 0.0;
         }
 
-        return 0;
+        return 0.0;
     }
 
     private function containsAny(string $value, array $needles): bool
@@ -237,4 +234,5 @@ class MemberInvestmentPortfolioController extends Controller
     {
         return $this->containsAny($title, ['loan', 'emi']) || $this->containsAny($applicationNo, ['-ln-', 'loan']);
     }
+
 }

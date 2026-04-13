@@ -19,11 +19,7 @@ import { SystemNav } from "./nav-system"
 
 // This is sample data.
 const data = {
-  // user: {
-  //   name: "shadcn",
-  //   email: "m@example.com",
-  //   avatar: "/avatars/shadcn.jpg",
-  // },
+
 
   teams: [
     {
@@ -137,7 +133,7 @@ const data = {
     },
     {
       name: "Dividend Distribution",
-      url: "#",
+      url: "/admin/dashboard/dividend-distribution",
       icon: (
         <Blocks
         />
