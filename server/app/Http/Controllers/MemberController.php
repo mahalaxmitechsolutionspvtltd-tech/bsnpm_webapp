@@ -3,17 +3,20 @@
 namespace App\Http\Controllers;
 
 use App\Helpers\ApiResponse;
+use App\Mail\MemberWelcomeMail;
 use App\Models\AccountManagement;
 use App\Models\Member;
 use App\Models\MemberEmergencyFund;
 use App\Models\MemberJoiningFee;
 use App\Models\MemberShareCapital;
-
 use App\Models\TrialBalance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Cookie;
 
 class MemberController extends Controller
 {
@@ -25,6 +28,7 @@ class MemberController extends Controller
 
         return ApiResponse::success('Members fetched successfully', $members);
     }
+
     public function createMembers(Request $request)
     {
         $validated = $request->validate([
@@ -41,7 +45,6 @@ class MemberController extends Controller
             'emergancy_fund_amount' => ['nullable', 'numeric', 'min:20'],
         ]);
 
-        // Validation for multiples
         if (($validated['share_capital'] ?? null) === 'yes') {
             if (!isset($validated['share_capital_amount']) || fmod((float) $validated['share_capital_amount'], 500) != 0.0) {
                 return ApiResponse::error('Validation failed', [
@@ -63,22 +66,21 @@ class MemberController extends Controller
         try {
             $createdBy = $validated['created_by'] ?? $request->input('created_by') ?? null;
             $formattedGender = !empty($validated['gender']) ? ucfirst(strtolower($validated['gender'])) : null;
+            $plainPassword = $validated['password'];
 
-            // 1. Create Member
             $member = Member::create([
                 'full_name' => $validated['full_name'],
                 'email' => $validated['email'] ?? null,
                 'mobile_number' => $validated['mobile_number'] ?? null,
                 'gender' => $formattedGender,
                 'status' => $validated['status'] ?? 'active',
-                'password' => Hash::make($validated['password']),
+                'password' => Hash::make($plainPassword),
                 'created_by' => $createdBy,
             ]);
 
             $joiningFeeDate = now();
             $joiningFeeAmount = 100.00;
 
-            // 2. Add Member Joining Fee record
             MemberJoiningFee::create([
                 'member_id' => $member->member_id,
                 'member_name' => $member->full_name,
@@ -88,7 +90,6 @@ class MemberController extends Controller
                 'updated_at' => now(),
             ]);
 
-            // 3. Trial Balance Logic
             if ((int) $joiningFeeDate->format('n') >= 4) {
                 $startYear = (int) $joiningFeeDate->format('Y');
                 $endYear = $startYear + 1;
@@ -96,6 +97,7 @@ class MemberController extends Controller
                 $startYear = (int) $joiningFeeDate->format('Y') - 1;
                 $endYear = (int) $joiningFeeDate->format('Y');
             }
+
             $financialYear = $startYear . '-' . substr((string) $endYear, -2);
 
             $trialBalance = TrialBalance::where('financial_year', $financialYear)->first();
@@ -116,7 +118,6 @@ class MemberController extends Controller
                 ]);
             }
 
-            // Fix for json_decode issue
             $creditJson = $trialBalance->credit_json;
             if (!is_array($creditJson)) {
                 $creditJson = json_decode((string) $creditJson, true) ?: [];
@@ -128,7 +129,6 @@ class MemberController extends Controller
                 $nextCreditId = max($ids) + 1;
             }
 
-            // Joining Fee — Trial Balance credit entry
             $creditJson[] = [
                 'id' => $nextCreditId,
                 'title' => 'member joining fee',
@@ -139,10 +139,8 @@ class MemberController extends Controller
             ];
             $nextCreditId++;
 
-            // 4. Account Management — $applications array
             $applications = [];
 
-            // ✅ Joining Fee — FIRST entry
             array_push($applications, [
                 'title' => 'member joining fee',
                 'date' => $joiningFeeDate->toDateString(),
@@ -153,7 +151,6 @@ class MemberController extends Controller
 
             $totalAmount = (float) $joiningFeeAmount;
 
-            // ✅ Share Capital
             if (($validated['share_capital'] ?? null) === 'yes' && !empty($validated['share_capital_amount'])) {
                 MemberShareCapital::create([
                     'member_id' => $member->member_id,
@@ -174,7 +171,6 @@ class MemberController extends Controller
 
                 $totalAmount += (float) $validated['share_capital_amount'];
 
-                // Share Capital — Trial Balance credit entry
                 $creditJson[] = [
                     'id' => $nextCreditId,
                     'title' => 'share capital',
@@ -186,7 +182,6 @@ class MemberController extends Controller
                 $nextCreditId++;
             }
 
-            // ✅ Emergency Fund
             if (($validated['emergancy_fund'] ?? null) === 'yes' && !empty($validated['emergancy_fund_amount'])) {
                 MemberEmergencyFund::create([
                     'member_id' => $member->member_id,
@@ -207,7 +202,6 @@ class MemberController extends Controller
 
                 $totalAmount += (float) $validated['emergancy_fund_amount'];
 
-                // Emergency Fund — Trial Balance credit entry
                 $creditJson[] = [
                     'id' => $nextCreditId,
                     'title' => 'emergency fund',
@@ -219,17 +213,14 @@ class MemberController extends Controller
                 $nextCreditId++;
             }
 
-            // ✅ Trial Balance — एकदाच update (सगळ्या entries नंतर)
             $trialBalance->update([
                 'credit_json' => $creditJson,
                 'updated_by' => $createdBy,
                 'updated_at' => now(),
             ]);
 
-            // ✅ Debug log — joining fee आहे का confirm करा
-            \Log::info('Applications before save:', $applications);
+            Log::info('Applications before save:', $applications);
 
-            // ✅ Account Management — array directly (Model cast handle करेल)
             AccountManagement::create([
                 'member_id' => $member->member_id,
                 'member_name' => $member->full_name,
@@ -247,15 +238,29 @@ class MemberController extends Controller
                 'updated_at' => now(),
             ]);
 
+            DB::afterCommit(function () use ($member, $plainPassword) {
+                if (!empty($member->email)) {
+                    try {
+                        Mail::to($member->email)->send(new MemberWelcomeMail($member, $plainPassword));
+                    } catch (\Throwable $mailException) {
+                        Log::error('Member welcome mail failed', [
+                            'member_id' => $member->member_id,
+                            'email' => $member->email,
+                            'message' => $mailException->getMessage(),
+                        ]);
+                    }
+                }
+            });
+
             DB::commit();
 
             return ApiResponse::success('Member created successfully', [
                 'member' => $member,
                 'applications_json' => $applications,
             ], 201);
-
         } catch (\Throwable $th) {
             DB::rollBack();
+
             return ApiResponse::error('Failed to create member', [
                 'server' => [$th->getMessage()],
             ], 500);
@@ -276,11 +281,13 @@ class MemberController extends Controller
 
         return $startYear . '-' . substr((string) $endYear, -2);
     }
+
     public function updateStatus(Request $request, $member_id)
     {
         if (!$member_id) {
             return ApiResponse::error("No member id found.", null, 405);
         }
+
         $validated = $request->validate([
             'status' => ['required', Rule::in(['active', 'defaulter', 'resigned', 'deactive'])],
             'updated_by' => ['nullable', 'string', 'max:100'],
@@ -296,9 +303,62 @@ class MemberController extends Controller
         $member->updated_by = $validated['updated_by'] ?? null;
         $member->updated_at = now();
         $member->save();
+
         return ApiResponse::success("Member status updated successfully.", $member, 200);
     }
 
+ public function logout(Request $request)
+    {
+        $member = $request->user();
+
+        if (!$member) {
+            $response = response()->json([
+                'success' => false,
+                'message' => 'Member not authenticated.',
+                'data' => null,
+            ], 401);
+
+            return $response
+                ->withCookie(Cookie::forget('auth_token'))
+                ->withCookie(Cookie::forget('member_token'))
+                ->withCookie(Cookie::forget('laravel_session'))
+                ->withCookie(Cookie::forget('XSRF-TOKEN'));
+        }
+
+        if (method_exists($member, 'currentAccessToken') && $member->currentAccessToken()) {
+            $member->currentAccessToken()->delete();
+        }
+
+        if (method_exists($member, 'tokens')) {
+            $tokenValue = $request->bearerToken();
+
+            if ($tokenValue) {
+                $member->tokens()
+                    ->where('token', hash('sha256', $tokenValue))
+                    ->delete();
+            }
+        }
+
+        if ($request->hasSession()) {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
+
+        $response = response()->json([
+            'success' => true,
+            'message' => 'Member logged out successfully.',
+            'data' => [
+                'member_id' => $member->member_id ?? null,
+                'member_name' => $member->full_name ?? null,
+            ],
+        ], 200);
+
+        return $response
+            ->withCookie(Cookie::forget('auth_token'))
+            ->withCookie(Cookie::forget('member_token'))
+            ->withCookie(Cookie::forget('laravel_session'))
+            ->withCookie(Cookie::forget('XSRF-TOKEN'));
+    }
 
 
 }
