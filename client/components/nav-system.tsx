@@ -14,6 +14,7 @@ import {
     SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 
 type SystemItem = {
     name: string
@@ -26,6 +27,9 @@ type SystemItem = {
 }
 
 export function SystemNav({ systems }: { systems: SystemItem[] }) {
+    const pathname = usePathname()
+    const currentPath = pathname;
+
     return (
         <SidebarGroup>
             <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
@@ -50,7 +54,9 @@ export function SystemNav({ systems }: { systems: SystemItem[] }) {
                                         <SidebarMenuSub>
                                             {item.items.map((subItem) => (
                                                 <SidebarMenuSubItem key={subItem.title}>
-                                                    <SidebarMenuSubButton asChild>
+                                                    <SidebarMenuSubButton asChild
+                                                        className={currentPath == subItem.url ? "bg-primary rounded-sm text-primary-foreground" : ""}
+                                                    >
                                                         <Link href={subItem.url}>
                                                             <span>{subItem.title}</span>
                                                         </Link>
@@ -66,7 +72,9 @@ export function SystemNav({ systems }: { systems: SystemItem[] }) {
 
                     return (
                         <SidebarMenuItem key={item.name}>
-                            <SidebarMenuButton asChild tooltip={item.name}>
+                            <SidebarMenuButton asChild tooltip={item.name}
+                                className={currentPath == item.url ? "bg-primary rounded-sm text-primary-foreground" : ""}
+                            >
                                 <a href={item.url}>
                                     {item.icon}
                                     <span className="group-data-[collapsible=icon]:hidden">{item.name}</span>

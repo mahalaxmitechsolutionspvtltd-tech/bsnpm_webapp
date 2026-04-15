@@ -29,6 +29,6 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
-, "app/(auth)/sanchalak/login/page.tss"  ],
+, "app/(auth)/sanchalak/login/page.tss", "app/admin/dashboard/dividend-distribution/sample.tsx"  ],
   "exclude": ["node_modules"]
 }

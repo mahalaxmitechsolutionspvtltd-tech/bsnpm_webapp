@@ -323,18 +323,10 @@ export default function RecoveryNoticesTable() {
         <div className="overflow-hidden rounded-md">
             <div className="flex flex-wrap justify-between gap-3 px-2 py-6">
                 <div className="my-auto flex flex-wrap gap-3">
-                    <div className="w-55">
+                    <div className="w-[50vh]">
                         <Filter column={table.getColumn('application_no')!} />
                     </div>
-                    <div className="w-45">
-                        <Filter column={table.getColumn('member_id')!} />
-                    </div>
-                    <div className="w-60">
-                        <Filter column={table.getColumn('member_name')!} />
-                    </div>
-                    <div className="w-45">
-                        <Filter column={table.getColumn('is_mail_send')!} />
-                    </div>
+
                 </div>
             </div>
 

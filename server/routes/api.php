@@ -5,6 +5,7 @@ use App\Http\Controllers\DepositWithdrawalController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DataEntryController;
 use App\Http\Controllers\DepositeController;
+use App\Http\Controllers\DividantController;
 use App\Http\Controllers\LoanController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\MemberInvestmentPortfolioController;
@@ -89,6 +90,11 @@ Route::middleware([AdminAuthMiddleware::class])->group(function () {
 
 
 
+    // divident
+
+    Route::get('v1/divident/member-share-capital', [DividantController::class, 'getAllMemberShareCapital']);
+    Route::get('v1/divident', [DividantController::class, 'getAllDividants']);
+    Route::post('v1/divident/create', [DividantController::class, 'createDividantDeclaration']);
 
 
 });

@@ -204,26 +204,59 @@ class AuthController extends Controller
         ]);
     }
 
+
+
     public function logout(Request $request)
     {
-        $user = $request->user();
+        $member = $request->user();
 
-        if (!$user) {
-            return response()->json([
+        if (!$member) {
+            $response = response()->json([
                 'success' => false,
-                'message' => 'Unauthorized'
+                'message' => 'Member not authenticated.',
+                'data' => null,
             ], 401);
+
+            return $response
+                ->withCookie(Cookie::forget('auth_token'))
+                ->withCookie(Cookie::forget('member_token'))
+                ->withCookie(Cookie::forget('laravel_session'))
+                ->withCookie(Cookie::forget('XSRF-TOKEN'));
         }
 
-        $token = $user->currentAccessToken();
-
-        if ($token) {
-            $token->delete();
+        if (method_exists($member, 'currentAccessToken') && $member->currentAccessToken()) {
+            $member->currentAccessToken()->delete();
         }
 
-        return response()->json([
+        if (method_exists($member, 'tokens')) {
+            $tokenValue = $request->bearerToken();
+
+            if ($tokenValue) {
+                $member->tokens()
+                    ->where('token', hash('sha256', $tokenValue))
+                    ->delete();
+            }
+        }
+
+        if ($request->hasSession()) {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
+
+        $response = response()->json([
             'success' => true,
-            'message' => 'Logout successful'
-        ]);
+            'message' => 'Member logged out successfully.',
+            'data' => [
+                'member_id' => $member->member_id ?? null,
+                'member_name' => $member->full_name ?? null,
+            ],
+        ], 200);
+
+        return $response
+            ->withCookie(Cookie::forget('auth_token'))
+            ->withCookie(Cookie::forget('member_token'))
+            ->withCookie(Cookie::forget('laravel_session'))
+            ->withCookie(Cookie::forget('XSRF-TOKEN'));
     }
+
 }

@@ -430,7 +430,7 @@ const ContainerScroll = ({ titleComponent, children }: ContainerScrollProps) => 
   const translate = useTransform(scrollYProgress, [0, 1], [0, -60]);
 
   return (
-    <div className="relative flex h-224 items-center justify-center p-2 md:h-[72rem] md:p-20" ref={containerRef}>
+    <div className="relative flex h-224 items-center justify-center p-2 md:h-288 md:p-20" ref={containerRef}>
       <div className="relative w-full py-10 md:py-32" style={{ perspective: '1000px' }}>
         <Header translate={translate} titleComponent={titleComponent} />
         <CardScroll rotate={rotate} translate={translate} scale={scale}>
@@ -467,7 +467,7 @@ const CardScroll = ({ rotate, scale, children }: CardScrollProps) => (
       boxShadow:
         '0 8px 20px rgba(15,23,42,0.06), 0 24px 60px rgba(15,23,42,0.08), 0 60px 100px rgba(15,23,42,0.08)',
     }}
-    className="mx-auto -mt-12 h-[28rem] w-full max-w-5xl rounded-[16px] border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-800 dark:bg-slate-900 md:h-[38rem] md:p-6"
+    className="mx-auto -mt-12 h-112 w-full max-w-5xl rounded-[16px] border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-800 dark:bg-slate-900 md:h-152 md:p-6"
   >
     <div className="h-full w-full overflow-hidden rounded-[14px] bg-slate-50 dark:bg-slate-950 md:p-4">{children}</div>
   </motion.div>

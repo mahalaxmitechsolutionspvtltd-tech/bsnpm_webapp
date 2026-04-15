@@ -49,4 +49,29 @@ const updateMemberStatusHandler = async (payload: UpdateMemberStatusPayload) => 
     return response.data
 }
 
+export const LogoutHandler = async (): Promise<void> => {
+
+    try {
+        await axios.post(
+            `${URI}/api/v1/logout`,
+            {},
+            {
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+                withCredentials: true
+            }
+
+
+
+        );
+    } finally {
+        localStorage.removeItem("bsnpm_auth_user");
+        localStorage.removeItem("bsnpm_auth_token");
+        sessionStorage.removeItem("bsnpm_auth_user");
+        sessionStorage.removeItem("bsnpm_auth_token");
+    }
+};
+
 export { getMemberHandler, addMemberHandler, updateMemberStatusHandler };

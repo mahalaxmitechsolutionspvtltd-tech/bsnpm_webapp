@@ -321,9 +321,6 @@ const LoanSchemes = () => {
                     <div className="w-64">
                         <Filter column={table.getColumn('scheme_name')!} />
                     </div>
-                    <div className="w-64">
-                        <Filter column={table.getColumn('loan_details')!} />
-                    </div>
                     <div className="w-36">
                         <Filter column={table.getColumn('interest_rate')!} />
                     </div>

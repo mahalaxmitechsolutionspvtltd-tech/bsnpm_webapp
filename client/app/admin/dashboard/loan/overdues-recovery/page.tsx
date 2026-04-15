@@ -317,7 +317,7 @@ export default function LoanEmiOverdues() {
                             size="sm"
                             variant="outline"
                             className="h-9 rounded-xl"
-                          
+
                             onClick={() =>
                                 sendMailMutation.mutate({
                                     applicationNo,
@@ -485,8 +485,8 @@ export default function LoanEmiOverdues() {
                             ))
                         ) : (
                             <TableRow>
-                                <TableCell colSpan={columns.length} className="border-0 bg-white text-center">
-                                    <Lottie animationData={notFound} loop className="h-[60vh]" />
+                                <TableCell colSpan={columns.length} className="border-0 bg-white text-center h-[70vh]">
+                                    There is no data availabel...
                                 </TableCell>
                             </TableRow>
                         )}

@@ -2,8 +2,11 @@
 
 import {
     ColumnDef,
+    ColumnFiltersState,
+    FilterFn,
     flexRender,
     getCoreRowModel,
+    getFilteredRowModel,
     useReactTable,
 } from "@tanstack/react-table"
 import {
@@ -18,13 +21,10 @@ import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import View from "./View"
-import axios from "axios"
 import { getLoanEmiSchedulesHandler } from "@/services/loanHandler"
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
+import Filter from "@/components/ui/filter"
 
 export type EMISchedules = {
     "emi date": string
@@ -46,18 +46,6 @@ export type LoanEmi = {
     emi_schedule: EMISchedules
     created_by: string | null
     created_at: string | null
-}
-
-type GetLoanEmiSchedulesResponse = {
-    success: boolean
-    message: string
-    data: {
-        data: LoanEmi[]
-        current_page: number
-        last_page: number
-        per_page: number
-        total: number
-    }
 }
 
 const formatDate = (value: unknown) => {
@@ -85,24 +73,37 @@ const formatCurrency = (value: unknown) => {
     }).format(Number.isFinite(amount) ? amount : 0)
 }
 
+const combinedSearchFilter: FilterFn<LoanEmi> = (row, _columnId, filterValue) => {
+    const query = String(filterValue ?? "").trim().toLowerCase()
 
+    if (!query) return true
+
+    const applicationNo = String(row.original.application_no ?? "").toLowerCase()
+    const memberId = String(row.original.member_id ?? "").toLowerCase()
+    const memberName = String(row.original.member_name ?? "").toLowerCase()
+
+    return (
+        applicationNo.includes(query) ||
+        memberId.includes(query) ||
+        memberName.includes(query)
+    )
+}
 
 export default function LoanEmiSchedulesPage() {
     const [selectedApplication, setSelectedApplication] = useState<LoanEmi | null>(null)
     const [viewOpen, setViewOpen] = useState(false)
-    const [search, setSearch] = useState("")
     const [page, setPage] = useState(1)
+    const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
     const perPage = 10
 
     const { data, isLoading, isError, isFetching } = useQuery({
-        queryKey: ["loan-emi-schedules", search, page, perPage],
-        queryFn: () => getLoanEmiSchedulesHandler(search, page, perPage),
+        queryKey: ["loan-emi-schedules", page, perPage],
+        queryFn: () => getLoanEmiSchedulesHandler("", page, perPage),
     })
 
     const applications = data?.data?.data ?? []
     const currentPage = data?.data?.current_page ?? 1
     const lastPage = data?.data?.last_page ?? 1
-    const total = data?.data?.total ?? 0
 
     const handleOpenView = (application: LoanEmi) => {
         setSelectedApplication(application)
@@ -112,8 +113,12 @@ export default function LoanEmiSchedulesPage() {
     const columns: ColumnDef<LoanEmi>[] = useMemo(
         () => [
             {
-                header: "Application No",
+                header: "Search",
                 accessorKey: "application_no",
+                filterFn: combinedSearchFilter,
+                meta: {
+                    filterVariant: "text",
+                },
                 cell: ({ row }) => (
                     <div className="font-medium">
                         {String(row.original.application_no ?? "-")}
@@ -200,13 +205,15 @@ export default function LoanEmiSchedulesPage() {
     const table = useReactTable({
         data: Array.isArray(applications) ? applications : [],
         columns,
+        state: {
+            columnFilters,
+        },
+        onColumnFiltersChange: setColumnFilters,
         getCoreRowModel: getCoreRowModel(),
+        getFilteredRowModel: getFilteredRowModel(),
     })
 
-    const handleSearch = (value: string) => {
-        setSearch(value)
-        setPage(1)
-    }
+    const searchColumn = table.getColumn("application_no")
 
     if (isLoading) {
         return (
@@ -248,18 +255,9 @@ export default function LoanEmiSchedulesPage() {
         <div className="overflow-hidden rounded-md">
             <View open={viewOpen} onOpenChange={setViewOpen} data={selectedApplication} />
 
-            <div className="flex flex-col justify-between gap-3 px-2 py-6 md:flex-row md:items-center">
+            <div className="flex flex-col justify-between gap-3 py-6 md:flex-row md:items-end">
                 <div className="w-full max-w-md">
-                    <Input
-                        value={search}
-                        onChange={(e) => handleSearch(e.target.value)}
-                        placeholder="Search by member name, application no, member id"
-                        className="h-10"
-                    />
-                </div>
-
-                <div className="text-sm text-muted-foreground">
-                    {isFetching ? "Updating..." : `Total Records: ${total}`}
+                    {searchColumn ? <Filter column={searchColumn} /> : null}
                 </div>
             </div>
 
@@ -272,10 +270,12 @@ export default function LoanEmiSchedulesPage() {
                                     <TableHead key={header.id}>
                                         {header.isPlaceholder
                                             ? null
-                                            : flexRender(
-                                                header.column.columnDef.header,
-                                                header.getContext()
-                                            )}
+                                            : header.column.id === "application_no"
+                                                ? "Application No"
+                                                : flexRender(
+                                                    header.column.columnDef.header,
+                                                    header.getContext()
+                                                )}
                                     </TableHead>
                                 ))}
                             </TableRow>

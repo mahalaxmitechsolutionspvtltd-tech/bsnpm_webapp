@@ -2,27 +2,17 @@
 
 import React from 'react'
 import {
-    PlusSquare,
-    History,
-    RefreshCw,
-    Download,
-    Pencil,
-    Trash2,
     Eye,
-    Sparkles,
     FileSpreadsheet,
-    ArrowUpRight,
+    CheckCircle2,
+    TrendingUp,
+    CalendarDays,
+    Wallet,
+    Search,
 } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select'
+import { Card, CardContent } from '@/components/ui/card'
 import {
     Table,
     TableBody,
@@ -40,138 +30,275 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import {
+    createDividendHandler,
+    getAllDividentHandler,
+    getMemberShareCapitalHandler,
+    MemberShareCapitalItem,
+    type DividentItem,
+} from '@/services/dividentHandler'
 
 type DividendRecord = {
-    id: string
+    id: number
     financialYear: string
     rate: number
     totalPayout: number
     declaredDate: string
-    status: 'draft' | 'declared'
+    createdBy: string
+    status: 'declared'
 }
 
-const financialYearOptions = [
-    '2023-2024',
-    '2024-2025',
-    '2025-2026',
-    '2026-2027',
-    '2027-2028',
-    '2028-2029',
-]
-
-const initialRecords: DividendRecord[] = [
-    {
-        id: 'DIV-2026-001',
-        financialYear: '2026-2027',
-        rate: 20,
-        totalPayout: 239800,
-        declaredDate: '2026-04-12',
-        status: 'declared',
-    },
-    {
-        id: 'DIV-2024-001',
-        financialYear: '2024-2025',
-        rate: 20,
-        totalPayout: 100,
-        declaredDate: '2026-02-13',
-        status: 'declared',
-    },
-]
-
-const shareCapitalByYear: Record<string, number> = {
-    '2023-2024': 950000,
-    '2024-2025': 500,
-    '2025-2026': 840000,
-    '2026-2027': 1199000,
-    '2027-2028': 1320000,
-    '2028-2029': 1450000,
+type PreviewMemberRow = {
+    id: number
+    memberId: string
+    memberName: string
+    shareCapitalAmount: number
+    dividendAmount: number
+    financialYear: string
 }
 
 const formatCurrency = (value: number) =>
     `₹ ${new Intl.NumberFormat('en-IN', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-    }).format(value)}`
+    }).format(Number.isFinite(value) ? value : 0)}`
 
-const formatPercent = (value: number) => `${value.toFixed(2)}%`
+const formatPercent = (value: number) => `${Number.isFinite(value) ? value.toFixed(2) : '0.00'}%`
 
-const formatDate = (value: string) => value
+const formatDate = (value: string) => {
+    if (!value) return '-'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return new Intl.DateTimeFormat('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    }).format(date)
+}
+
+const normalizeFinancialYear = (value: string | null | undefined) => {
+    const raw = String(value ?? '').trim()
+    if (!raw) return '-'
+    const match = raw.match(/^(\d{4})-(\d{2}|\d{4})$/)
+    if (!match) return raw
+    const start = match[1]
+    const end = match[2].length === 2 ? `${start.slice(0, 2)}${match[2]}` : match[2]
+    return `${start}-${end}`
+}
+
+const mapDividendItem = (item: DividentItem): DividendRecord => ({
+    id: Number(item.id ?? 0),
+    financialYear: normalizeFinancialYear(item.financial_year),
+    rate: Number(item.dividend_rate ?? 0),
+    totalPayout: Number(item.total_payout ?? 0),
+    declaredDate: String(item.declared_date ?? ''),
+    createdBy: String(item.created_by ?? '-'),
+    status: 'declared',
+})
+
+const mapMemberShareCapitalItem = (item: MemberShareCapitalItem): PreviewMemberRow => ({
+    id: Number(item.id ?? 0),
+    memberId: String(item.member_id ?? '-'),
+    memberName: String(item.member_name ?? '-'),
+    shareCapitalAmount: Number(item.share_capital_amount ?? 0),
+    dividendAmount: 0,
+    financialYear: normalizeFinancialYear((item as MemberShareCapitalItem & { financial_year?: string | null }).financial_year),
+})
+
+function PageSkeleton() {
+    return (
+        <div className="w-full space-y-5 md:p-6">
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
+                <CardContent className="px-4 py-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <Skeleton className="h-16 w-full rounded-xl" />
+                            <Skeleton className="h-16 w-full rounded-xl" />
+                        </div>
+                        <div className="flex flex-col gap-3 sm:flex-row">
+                            <Skeleton className="h-10 w-40 rounded-xl" />
+                            <Skeleton className="h-10 w-32 rounded-xl" />
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border border-slate-200 shadow-sm">
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    {Array.from({ length: 6 }).map((_, index) => (
+                                        <TableHead key={index}>
+                                            <Skeleton className="h-4 w-20" />
+                                        </TableHead>
+                                    ))}
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {Array.from({ length: 5 }).map((_, rowIndex) => (
+                                    <TableRow key={rowIndex}>
+                                        {Array.from({ length: 6 }).map((__, cellIndex) => (
+                                            <TableCell key={cellIndex}>
+                                                <Skeleton className="h-4 w-24" />
+                                            </TableCell>
+                                        ))}
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+    )
+}
 
 export default function Page() {
-    const currentYear = new Date().getFullYear()
-    const currentFinancialYear = `${currentYear}-${currentYear + 1}`
-
-    const [selectedYear, setSelectedYear] = React.useState('')
-    const [rate, setRate] = React.useState('')
-    const [records, setRecords] = React.useState<DividendRecord[]>(initialRecords)
+    const queryClient = useQueryClient()
     const [previewOpen, setPreviewOpen] = React.useState(false)
-    const [editingRecord, setEditingRecord] = React.useState<DividendRecord | null>(null)
+    const [selectedFinancialYear, setSelectedFinancialYear] = React.useState<string>('all')
+    const [dividendRateInput, setDividendRateInput] = React.useState<string>('')
+    const [saveError, setSaveError] = React.useState<string>('')
 
-    const numericRate = Number(rate)
-    const isRateValid = Number.isFinite(numericRate) && numericRate > 0
-    const selectedShareCapital = selectedYear ? shareCapitalByYear[selectedYear] ?? 0 : 0
-    const previewPayout = selectedYear && isRateValid ? (selectedShareCapital * numericRate) / 100 : 0
+    const {
+        data: dividendResponse,
+        isLoading: isDividendLoading,
+        isError: isDividendError,
+        error: dividendError,
+    } = useQuery({
+        queryKey: ['all-divident'],
+        queryFn: () => getAllDividentHandler(),
+    })
 
-    const resetForm = () => {
-        setSelectedYear('')
-        setRate('')
-        setEditingRecord(null)
-        setPreviewOpen(false)
-    }
+    const {
+        data: memberShareCapitalResponse,
+        isLoading: isMemberShareCapitalLoading,
+        isError: isMemberShareCapitalError,
+        error: memberShareCapitalError,
+    } = useQuery({
+        queryKey: ['member-share-capital'],
+        queryFn: () => getMemberShareCapitalHandler(),
+    })
 
-    const handlePreview = () => {
-        if (!selectedYear || !isRateValid) return
+    const records = React.useMemo<DividendRecord[]>(() => {
+        return Array.isArray(dividendResponse?.data)
+            ? dividendResponse.data.map(mapDividendItem)
+            : []
+    }, [dividendResponse])
+
+    const memberShareCapitalRecords = React.useMemo<PreviewMemberRow[]>(() => {
+        return Array.isArray(memberShareCapitalResponse?.data)
+            ? memberShareCapitalResponse.data.map(mapMemberShareCapitalItem)
+            : []
+    }, [memberShareCapitalResponse])
+
+    const memberFinancialYearOptions = React.useMemo(() => {
+        return Array.from(
+            new Set(
+                memberShareCapitalRecords
+                    .map((item) => item.financialYear)
+                    .concat(records.map((item) => item.financialYear))
+                    .filter((year) => {
+                        const normalized = String(year ?? '').trim()
+                        return normalized !== '' && normalized !== '-'
+                    })
+            )
+        ).sort((a, b) => b.localeCompare(a))
+    }, [memberShareCapitalRecords, records])
+
+    React.useEffect(() => {
+        if (selectedFinancialYear === 'all' && records.length > 0 && dividendRateInput === '') {
+            const latestRecord = records[0]
+            setSelectedFinancialYear(latestRecord.financialYear)
+            setDividendRateInput(String(latestRecord.rate))
+        }
+    }, [records, selectedFinancialYear, dividendRateInput])
+
+    const selectedDividendRate = React.useMemo(() => {
+        const parsedRate = Number(dividendRateInput ?? '')
+        if (Number.isFinite(parsedRate) && parsedRate > 0) return parsedRate
+
+        if (selectedFinancialYear !== 'all') {
+            const matchedRecord = records.find((item) => item.financialYear === selectedFinancialYear)
+            if (matchedRecord) return Number(matchedRecord.rate ?? 0)
+        }
+
+        return 0
+    }, [dividendRateInput, selectedFinancialYear, records])
+
+    const previewRows = React.useMemo<PreviewMemberRow[]>(() => {
+        const yearFilteredMembers =
+            selectedFinancialYear !== 'all'
+                ? memberShareCapitalRecords.filter((item) => item.financialYear === selectedFinancialYear || item.financialYear === '-')
+                : memberShareCapitalRecords
+
+        return yearFilteredMembers.map((item) => ({
+            ...item,
+            dividendAmount: Number(((item.shareCapitalAmount * selectedDividendRate) / 100).toFixed(2)),
+        }))
+    }, [memberShareCapitalRecords, selectedDividendRate, selectedFinancialYear])
+
+    const previewTotalPayout = React.useMemo(() => {
+        return previewRows.reduce((sum, item) => sum + item.dividendAmount, 0)
+    }, [previewRows])
+
+    const createDividendMutation = useMutation({
+        mutationFn: createDividendHandler,
+        onMutate: () => {
+            setSaveError('')
+        },
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: ['all-divident'] })
+            setPreviewOpen(false)
+        },
+        onError: (error: any) => {
+            const apiMessage =
+                error?.response?.data?.message ||
+                error?.message ||
+                'Failed to save dividend declaration.'
+            setSaveError(String(apiMessage))
+        },
+    })
+
+    const handleViewDeclaration = () => {
+        if (!selectedFinancialYear || selectedFinancialYear === 'all') return
+        if (!Number.isFinite(selectedDividendRate) || selectedDividendRate <= 0) return
+        if (previewRows.length === 0) return
+        setSaveError('')
         setPreviewOpen(true)
     }
 
-    const handleSaveDeclaration = () => {
-        if (!selectedYear || !isRateValid) return
+    const handleConfirmDeclaration = () => {
+        if (!selectedFinancialYear || selectedFinancialYear === 'all') return
+        if (!Number.isFinite(selectedDividendRate) || selectedDividendRate <= 0) return
 
-        const newRecord: DividendRecord = {
-            id: editingRecord?.id ?? `DIV-${selectedYear.split('-')[0]}-${String(records.length + 1).padStart(3, '0')}`,
-            financialYear: selectedYear,
-            rate: numericRate,
-            totalPayout: previewPayout,
-            declaredDate: new Date().toISOString().slice(0, 10),
-            status: 'declared',
-        }
-
-        setRecords((prev) => {
-            if (editingRecord) {
-                return prev.map((item) => (item.id === editingRecord.id ? newRecord : item))
-            }
-            return [newRecord, ...prev]
+        createDividendMutation.mutate({
+            financial_year: selectedFinancialYear,
+            dividend_rate: selectedDividendRate,
         })
-
-        resetForm()
-    }
-
-    const handleEdit = (record: DividendRecord) => {
-        setEditingRecord(record)
-        setSelectedYear(record.financialYear)
-        setRate(String(record.rate))
-        window.scrollTo({ top: 0, behavior: 'smooth' })
-    }
-
-    const handleDelete = (id: string) => {
-        setRecords((prev) => prev.filter((item) => item.id !== id))
-        if (editingRecord?.id === id) {
-            resetForm()
-        }
-    }
-
-    const handleRefresh = () => {
-        setRecords([...records])
     }
 
     const handleExportCsv = () => {
-        const headers = ['Financial Year', 'Rate (%)', 'Total Payout', 'Declared Date', 'Status']
-        const rows = records.map((item) => [
-            item.financialYear,
-            item.rate.toFixed(2),
-            item.totalPayout.toFixed(2),
-            item.declaredDate,
-            item.status,
+        const headers = ['Financial Year', 'Rate (%)', 'Total Payout', 'Declared Date', 'Created By', 'Status']
+        const rows = records.map((row) => [
+            row.financialYear,
+            row.rate.toFixed(2),
+            row.totalPayout.toFixed(2),
+            row.declaredDate,
+            row.createdBy,
+            row.status,
         ])
 
         const csvContent = [headers, ...rows]
@@ -182,292 +309,319 @@ export default function Page() {
         const url = URL.createObjectURL(blob)
         const link = document.createElement('a')
         link.href = url
-        link.download = 'dividend-distribution-records.csv'
+        link.download = 'dividend-records.csv'
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
         URL.revokeObjectURL(url)
     }
 
+    if (isDividendLoading || isMemberShareCapitalLoading) return <PageSkeleton />
+
+    if (isDividendError || isMemberShareCapitalError) {
+        return (
+            <div className="w-full md:p-6">
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-600 shadow-sm">
+                    {dividendError instanceof Error
+                        ? dividendError.message
+                        : memberShareCapitalError instanceof Error
+                            ? memberShareCapitalError.message
+                            : 'Failed to load dividend records.'}
+                </div>
+            </div>
+        )
+    }
+
     return (
-        <div className="w-full space-y-5 bg-gradient-to-b from-slate-50 via-white to-slate-50 p-4 md:p-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-                <Button
-                    type="button"
-                    onClick={handleExportCsv}
-                    className="h-10 rounded-xl bg-emerald-600 px-4 text-white shadow-sm hover:bg-emerald-700"
-                >
-                    <FileSpreadsheet className="mr-2 h-4 w-4" />
-                    Export CSV
-                </Button>
-                <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleRefresh}
-                    className="h-10 rounded-xl border-slate-200 bg-white px-4"
-                >
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Refresh
-                </Button>
+        <div className="">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between border rounded-lg px-3 py-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:min-w-130">
+                    <div className="w-full space-y-2">
+                        <label className="text-sm font-medium text-slate-700">Financial Year</label>
+                        <Select
+                            value={selectedFinancialYear}
+                            onValueChange={(value) => {
+                                setSelectedFinancialYear(value)
+                                if (value !== 'all') {
+                                    const matchedRecord = records.find((item) => item.financialYear === value)
+                                    if (matchedRecord) {
+                                        setDividendRateInput(String(matchedRecord.rate))
+                                    }
+                                }
+                            }}
+                        >
+                            <SelectTrigger className="h-10 w-full rounded-xl">
+                                <SelectValue placeholder="Select financial year" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                {memberFinancialYearOptions.map((year) => (
+                                    <SelectItem key={year} value={year}>
+                                        {year}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="w-30 space-y-2">
+                        <label className="text-sm font-medium text-slate-700">Dividend Rate</label>
+                        <div className="relative">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                            <Input
+                                value={dividendRateInput}
+                                onChange={(e) => setDividendRateInput(e.target.value)}
+                                placeholder="12.6%"
+                                type="number"
+                                inputMode="decimal"
+                                className="rounded-xl pl-9"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Button
+                        type="button"
+                        onClick={handleViewDeclaration}
+                        disabled={
+                            !selectedFinancialYear ||
+                            selectedFinancialYear === 'all' ||
+                            !Number.isFinite(selectedDividendRate) ||
+                            selectedDividendRate <= 0 ||
+                            previewRows.length === 0
+                        }
+                        className="h-10 rounded-xl px-5 sm:min-w-42"
+                    >
+                        <Eye className="mr-2 h-4 w-4" />
+                        View Declaration
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleExportCsv}
+                        className="h-10 rounded-xl px-5"
+                        disabled={records.length === 0}
+                    >
+                        <FileSpreadsheet className="mr-2 h-4 w-4" />
+                        Export CSV
+                    </Button>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-                <Card className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-                    <CardHeader className="border-b border-slate-200 bg-slate-50/70 px-5 py-4">
-                        <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.16em] text-slate-900">
-                            <PlusSquare className="h-4 w-4" />
-                            {editingRecord ? 'Edit Declaration' : 'New Declaration'}
-                        </CardTitle>
-                        <CardDescription className="text-xs text-slate-500">
-                            Configure year and rate, then preview the payout before declaration.
-                        </CardDescription>
-                    </CardHeader>
+            <div className="mt-5 overflow-x-auto border rounded-xl">
+                <Table>
+                    <TableHeader>
+                        <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
+                            <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                Financial Year
+                            </TableHead>
+                            <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                Dividend Rate
+                            </TableHead>
+                            <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                Total Payout
+                            </TableHead>
+                            <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                Declared Date
+                            </TableHead>
+                            <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                Created By
+                            </TableHead>
+                            <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                Status
+                            </TableHead>
+                        </TableRow>
+                    </TableHeader>
 
-                    <CardContent className="space-y-5 px-5 py-5">
-                        <div className="space-y-2">
-                            <label className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600">
-                                Financial Year <span className="text-rose-500">*</span>
-                            </label>
-                            <Select value={selectedYear} onValueChange={setSelectedYear}>
-                                <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white shadow-none">
-                                    <SelectValue placeholder="-- Select Year --" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {financialYearOptions.map((year) => (
-                                        <SelectItem key={year} value={year}>
-                                            {year}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-600">
-                                Dividend Rate (%) <span className="text-rose-500">*</span>
-                            </label>
-                            <div className="relative">
-                                <Input
-                                    value={rate}
-                                    onChange={(e) => setRate(e.target.value)}
-                                    placeholder="e.g. 10.5"
-                                    inputMode="decimal"
-                                    className="h-11 rounded-xl border-slate-200 bg-white pr-12 shadow-none"
-                                />
-                                <div className="pointer-events-none absolute inset-y-1 right-1 flex w-10 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-600">
-                                    %
-                                </div>
-                            </div>
-                        </div>
-
-
-
-
-                        <div className="flex flex-col gap-2">
-                            <Button
-                                type="button"
-                                onClick={handlePreview}
-                                disabled={!selectedYear || !isRateValid}
-                                size={"sm"}
-                                className="h-11 rounded-xl bg-slate-950 text-white hover:bg-slate-900"
-                            >
-                                <Eye className="mr-2 h-4 w-4" />
-                                Preview Declaration
-                            </Button>
-
-                            {editingRecord ? (
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={resetForm}
-                                    className="h-11 rounded-xl border-slate-200"
+                    <TableBody>
+                        {records.length > 0 ? (
+                            records.map((row) => (
+                                <TableRow
+                                    key={row.id}
+                                    className="group border-slate-100 transition-colors hover:bg-slate-50/60"
                                 >
-                                    Cancel Edit
-                                </Button>
-                            ) : null}
-                        </div>
-                    </CardContent>
-                </Card>
+                                    <TableCell className="px-5 py-3.5">
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-semibold text-slate-900">
+                                                {row.financialYear}
+                                            </span>
+                                            <span className="mt-0.5 text-xs text-slate-400">
+                                                ID #{row.id}
+                                            </span>
+                                        </div>
+                                    </TableCell>
 
-                <Card className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-                    <CardHeader className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="space-y-1">
-                            <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.16em] text-slate-900">
-                                <History className="h-4 w-4" />
-                                Declaration Records
-                            </CardTitle>
-                            <CardDescription className="text-xs text-slate-500">
-                                FY: {currentFinancialYear}
-                            </CardDescription>
-                        </div>
-                        <Badge
-                            variant="outline"
-                            className="rounded-full border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600"
-                        >
-                            {records.length} Records
-                        </Badge>
-                    </CardHeader>
+                                    <TableCell className="px-5 py-3.5">
+                                        <Badge
+                                            variant="outline"
+                                            className="rounded-lg border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                                        >
+                                            {formatPercent(row.rate)}
+                                        </Badge>
+                                    </TableCell>
 
-                    <CardContent className="p-0">
-                        <div className="overflow-x-auto">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow className="border-b border-slate-200 bg-white hover:bg-white">
-                                        <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                                            Financial Year
-                                        </TableHead>
-                                        <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                                            Rate
-                                        </TableHead>
-                                        <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                                            Total Payout
-                                        </TableHead>
-                                        <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                                            Declared Date
-                                        </TableHead>
-                                        <TableHead className="h-11 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                                            Status
-                                        </TableHead>
-                                        <TableHead className="h-11 px-5 text-right text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                                            Actions
-                                        </TableHead>
-                                    </TableRow>
-                                </TableHeader>
+                                    <TableCell className="px-5 py-3.5">
+                                        <span className="text-sm font-bold tabular-nums text-slate-900">
+                                            {formatCurrency(row.totalPayout)}
+                                        </span>
+                                    </TableCell>
 
-                                <TableBody>
-                                    {records.length > 0 ? (
-                                        records.map((record) => (
-                                            <TableRow
-                                                key={record.id}
-                                                className="border-b border-slate-200 transition-colors hover:bg-slate-50/70"
-                                            >
-                                                <TableCell className="px-5 py-4">
-                                                    <div className="flex flex-col">
-                                                        <span className="text-sm font-semibold text-slate-900">
-                                                            {record.financialYear}
-                                                        </span>
-                                                        <span className="text-xs text-slate-500">
-                                                            {record.id}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="px-5 py-4">
-                                                    <Badge
-                                                        variant="outline"
-                                                        className="rounded-xl border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-700"
-                                                    >
-                                                        {formatPercent(record.rate)}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell className="px-5 py-4">
-                                                    <div className="text-sm font-bold text-emerald-600">
-                                                        {formatCurrency(record.totalPayout)}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="px-5 py-4 text-sm text-slate-600">
-                                                    {formatDate(record.declaredDate)}
-                                                </TableCell>
-                                                <TableCell className="px-5 py-4">
-                                                    <Badge className="rounded-xl bg-emerald-100 px-2.5 py-1 text-emerald-700 hover:bg-emerald-100">
-                                                        {record.status}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell className="px-5 py-4">
-                                                    <div className="flex items-center justify-end gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleEdit(record)}
-                                                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
-                                                        >
-                                                            <Pencil className="h-4 w-4" />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleDelete(record.id)}
-                                                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-500 transition hover:border-rose-300 hover:text-rose-700"
-                                                        >
-                                                            <Trash2 className="h-4 w-4" />
-                                                        </button>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
-                                    ) : (
-                                        <TableRow>
-                                            <TableCell
-                                                colSpan={6}
-                                                className="px-5 py-12 text-center text-sm text-slate-500"
-                                            >
-                                                No declaration records found.
-                                            </TableCell>
-                                        </TableRow>
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </div>
-                    </CardContent>
-                </Card>
+                                    <TableCell className="px-5 py-3.5">
+                                        <span className="text-sm text-slate-600">
+                                            {formatDate(row.declaredDate)}
+                                        </span>
+                                    </TableCell>
+
+                                    <TableCell className="px-5 py-3.5">
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold uppercase text-slate-600">
+                                                {row.createdBy?.charAt(0) ?? '?'}
+                                            </div>
+                                            <span className="text-sm text-slate-700">
+                                                {row.createdBy || '-'}
+                                            </span>
+                                        </div>
+                                    </TableCell>
+
+                                    <TableCell className="px-5 py-3.5">
+                                        <Badge className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold capitalize text-emerald-700 hover:bg-emerald-50">
+                                            <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                            {row.status}
+                                        </Badge>
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                        ) : (
+                            <TableRow>
+                                <TableCell colSpan={6} className="px-5 py-16 text-center">
+                                    <div className="flex flex-col items-center gap-2">
+                                        <Wallet className="h-8 w-8 text-slate-300" />
+                                        <p className="text-sm font-medium text-slate-500">No dividend records found.</p>
+                                        <p className="text-xs text-slate-400">Try adjusting your filters.</p>
+                                    </div>
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
             </div>
 
             <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <DialogContent className="overflow-hidden rounded-3xl border border-slate-200 p-0 shadow-2xl sm:max-w-[640px]">
-                    <div className="border-b border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.14),transparent_35%),linear-gradient(135deg,#ffffff_0%,#f8fafc_100%)] px-6 py-5">
-                        <DialogHeader>
-                            <DialogTitle className="text-xl font-bold text-slate-900">
-                                Dividend Preview
-                            </DialogTitle>
-                            <DialogDescription className="text-sm text-slate-500">
-                                Review the declaration details before saving this dividend entry.
-                            </DialogDescription>
-                        </DialogHeader>
-                    </div>
+                <DialogContent className="overflow-hidden rounded-2xl p-0 shadow-xl sm:max-w-4xl">
+                    <div className="bg-white px-6 py-5">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <DialogHeader className="space-y-1">
+                                <DialogTitle className="text-xl font-bold text-slate-900">
+                                    Distribution Preview
+                                </DialogTitle>
+                                <DialogDescription className="flex items-center gap-2 text-sm text-slate-500">
+                                    <CalendarDays className="h-3.5 w-3.5" />
+                                    FY: <span className="font-semibold text-slate-700">{selectedFinancialYear}</span>
+                                    <span className="text-slate-300">|</span>
+                                    <TrendingUp className="h-3.5 w-3.5" />
+                                    Rate: <span className="font-semibold text-slate-700">{formatPercent(selectedDividendRate)}</span>
+                                </DialogDescription>
+                            </DialogHeader>
 
-                    <div className="space-y-4 px-6 py-5">
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                                    Financial Year
-                                </div>
-                                <div className="mt-2 text-sm font-semibold text-slate-900">
-                                    {selectedYear || '-'}
-                                </div>
-                            </div>
-
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                                    Dividend Rate
-                                </div>
-                                <div className="mt-2 text-sm font-semibold text-slate-900">
-                                    {isRateValid ? formatPercent(numericRate) : '-'}
-                                </div>
-                            </div>
-
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                                    Share Capital
-                                </div>
-                                <div className="mt-2 text-sm font-semibold text-slate-900">
-                                    {formatCurrency(selectedShareCapital)}
-                                </div>
-                            </div>
-
-                            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-600">
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-5 mx-10 py-1 text-right">
+                                <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
                                     Total Payout
                                 </div>
-                                <div className="mt-2 text-base font-bold text-emerald-700">
-                                    {formatCurrency(previewPayout)}
+                                <div className="text-xl font-extrabold tabular-nums text-emerald-700">
+                                    {formatCurrency(previewTotalPayout)}
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <DialogFooter className="border-t border-slate-200 px-6 py-4 sm:justify-end">
-                        <Button type="button" variant="outline" onClick={() => setPreviewOpen(false)} className="rounded-xl">
+                    {saveError ? (
+                        <div className="px-6 pt-2">
+                            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+                                {saveError}
+                            </div>
+                        </div>
+                    ) : null}
+
+                    <div className="max-h-100 overflow-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
+                                    <TableHead className="h-10 px-6 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                        Member Name / ID
+                                    </TableHead>
+                                    <TableHead className="h-10 px-6 text-right text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                        Share Capital
+                                    </TableHead>
+                                    <TableHead className="h-10 px-6 text-right text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                        Dividend
+                                    </TableHead>
+                                    <TableHead className="h-10 px-6 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                                        Status
+                                    </TableHead>
+                                </TableRow>
+                            </TableHeader>
+
+                            <TableBody>
+                                {previewRows.length > 0 ? (
+                                    previewRows.map((row) => (
+                                        <TableRow key={row.id} className="border-slate-100 transition-colors hover:bg-slate-50/60">
+                                            <TableCell className="px-6 py-3">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-xs font-bold uppercase text-slate-600">
+                                                        {row.memberName?.charAt(0) ?? '?'}
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-sm font-semibold text-slate-900">
+                                                            {row.memberName}
+                                                        </span>
+                                                        <span className="text-xs text-slate-400">{row.memberId}</span>
+                                                    </div>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="px-6 py-3 text-right text-sm font-semibold tabular-nums text-slate-700">
+                                                {formatCurrency(row.shareCapitalAmount)}
+                                            </TableCell>
+                                            <TableCell className="px-6 py-3 text-right text-sm font-bold tabular-nums text-emerald-600">
+                                                {formatCurrency(row.dividendAmount)}
+                                            </TableCell>
+                                            <TableCell className="px-6 py-3">
+                                                <div className="flex items-center justify-center">
+                                                    <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={4} className="px-6 py-12 text-center text-sm text-slate-500">
+                                            No member share capital records found.
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+
+                    <Separator className="bg-slate-100" />
+
+                    <DialogFooter className="px-6 py-4 sm:justify-end">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setPreviewOpen(false)}
+                            className="rounded-xl"
+                            disabled={createDividendMutation.isPending}
+                        >
                             Close
                         </Button>
-                        <Button type="button" onClick={handleSaveDeclaration} className="rounded-xl">
-                            {editingRecord ? 'Update Declaration' : 'Declare Dividend'}
+                        <Button
+                            type="button"
+                            onClick={handleConfirmDeclaration}
+                            className="rounded-xl"
+                            disabled={createDividendMutation.isPending}
+                        >
+                            {createDividendMutation.isPending ? 'Saving...' : 'Confirm Declaration'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

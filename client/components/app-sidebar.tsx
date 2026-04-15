@@ -177,7 +177,7 @@ const data = {
       items: [
         {
           title: "Notice Board",
-          url: "#",
+          url: "/admin/dashboard/communications/notices",
         },
         {
           title: "AGN / EGM",
@@ -212,7 +212,7 @@ const data = {
     },
     {
       name: "Gallery",
-      url: "#",
+      url: "/admin/dashboard/gallery",
       icon: (
         <Images
         />

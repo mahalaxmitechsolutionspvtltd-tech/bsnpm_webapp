@@ -270,7 +270,7 @@ function TrialBalanceSkeleton() {
             <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
                 <div className="flex w-full flex-col gap-2 sm:w-auto">
                     <Skeleton className="h-4 w-28" />
-                    <Skeleton className="h-10 w-full min-w-[220px] md:w-[260px]" />
+                    <Skeleton className="h-10 w-full min-w-55 md:w-65" />
                 </div>
 
                 <div className="my-auto">
@@ -371,8 +371,8 @@ export default function Page() {
                 size: 900,
             },
             {
-                accessorKey: 'debit',
-                header: () => <div className="text-right text-[13px] font-semibold">Debit</div>,
+                accessorKey: 'credit',
+                header: () => <div className="text-right text-[13px] font-semibold">Credit</div>,
                 cell: ({ row }) => (
                     <div className="min-h-5 text-right text-[13px] font-medium text-slate-800">
                         {formatBodyCellValue(row.original.debit, row.original.rowType)}
@@ -381,8 +381,8 @@ export default function Page() {
                 size: 220,
             },
             {
-                accessorKey: 'credit',
-                header: () => <div className="text-right text-[13px] font-semibold">Credit</div>,
+                accessorKey: 'debit',
+                header: () => <div className="text-right text-[13px] font-semibold">Debit</div>,
                 cell: ({ row }) => (
                     <div className="min-h-5 text-right text-[13px] font-medium text-slate-800">
                         {formatBodyCellValue(row.original.credit, row.original.rowType)}
@@ -449,8 +449,8 @@ export default function Page() {
                 <thead>
                     <tr>
                         <th>Particulars</th>
-                        <th>Debit</th>
                         <th>Credit</th>
+                        <th>Debit</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -517,7 +517,7 @@ export default function Page() {
                 <Card className="rounded-xl shadow-sm">
                     <CardContent>
                         <div className="text-lg font-bold capitalize text-slate-500">
-                            Total Debit
+                            Total Credit
                         </div>
                         <div className="text-[22px] font-bold text-slate-900">
                             {formatCurrency(debitTotal)}
@@ -528,7 +528,7 @@ export default function Page() {
                 <Card className="rounded-xl shadow-sm">
                     <CardContent>
                         <div className="text-lg font-bold capitalize text-slate-500">
-                            Total Credit
+                            Total Debit
                         </div>
                         <div className="text-[22px] font-bold text-slate-900">
                             {formatCurrency(creditTotal)}
