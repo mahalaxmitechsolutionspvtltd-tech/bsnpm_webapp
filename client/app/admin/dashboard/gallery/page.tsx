@@ -28,6 +28,8 @@ import {
     MoreHorizontal,
     Pencil,
     Trash2,
+    Loader2,
+    Link as LinkIcon,
 } from 'lucide-react'
 import { Tree, TreeItem } from '@/components/ui/tree'
 import { Label } from '@/components/ui/label'
@@ -38,6 +40,32 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+    addFileHandler,
+    addFolderHandler,
+    deleteFileHandler,
+    deleteFolderHandler,
+    getGalleryHandler,
+    updateFileHandler,
+    updateFolderHandler,
+} from '@/services/galleryHandler'
+import type {
+    AddFilePayload,
+    AddFileResponse,
+    AddFolderPayload,
+    AddFolderResponse,
+    DeleteFilePayload,
+    DeleteFileResponse,
+    DeleteFolderPayload,
+    DeleteFolderResponse,
+    GetGalleryResponse,
+    GalleryFolderItem,
+    UpdateFilePayload,
+    UpdateFileResponse,
+    UpdateFolderPayload,
+    UpdateFolderResponse,
+} from '@/types/galleryTypes'
 
 type FileType = 'image' | 'video' | 'pdf' | 'other'
 type ViewMode = 'grid' | 'list' | 'detailed'
@@ -50,79 +78,83 @@ type FileNode = {
     url?: string
     size?: string
     createdAt?: string
+    folderId?: number
+    fileIndex?: number
     children?: FileNode[]
 }
 
-const initialData: FileNode[] = [
-    {
-        id: '1',
-        name: 'Media',
+type AddFileMutationVariables = {
+    folderId: number | string
+    payload: AddFilePayload
+}
+
+type UpdateFolderMutationVariables = {
+    folderId: number | string
+    payload: UpdateFolderPayload
+}
+
+type UpdateFileMutationVariables = {
+    folderId: number | string
+    fileIndex: number | string
+    payload: UpdateFilePayload
+}
+
+type DeleteFolderMutationVariables = {
+    folderId: number | string
+    payload?: DeleteFolderPayload
+}
+
+type DeleteFileMutationVariables = {
+    folderId: number | string
+    fileIndex: number | string
+    payload?: DeleteFilePayload
+}
+
+const galleryQueryKey = ['gallery-data']
+
+function mapApiFileType(type?: string): FileType {
+    if (type === 'image') return 'image'
+    if (type === 'video') return 'video'
+    if (type === 'pdf') return 'pdf'
+    return 'other'
+}
+
+function formatDate(value?: string | null): string | undefined {
+    if (!value) return undefined
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    })
+}
+
+function formatSizeFromName(name?: string | null): string | undefined {
+    if (!name) return undefined
+    return '--'
+}
+
+function transformFoldersToTree(folders: GalleryFolderItem[]): FileNode[] {
+    return folders.map((folder) => ({
+        id: `folder-${folder.id}`,
+        name: folder.folder_name,
         type: 'folder',
-        createdAt: '12 Apr 2026',
-        children: [
-            {
-                id: '1-1',
-                name: 'Images',
-                type: 'folder',
-                createdAt: '13 Apr 2026',
-                children: [
-                    {
-                        id: 'img1',
-                        name: 'sample.jpg',
-                        type: 'file',
-                        fileType: 'image',
-                        url: 'https://images.unsplash.com/photo-1503023345310-bd7c1de61c7d',
-                        size: '2.4 MB',
-                        createdAt: '14 Apr 2026',
-                    },
-                    {
-                        id: 'img2',
-                        name: 'sample2.png',
-                        type: 'file',
-                        fileType: 'image',
-                        url: 'https://images.unsplash.com/photo-1492724441997-5dc865305da7',
-                        size: '1.8 MB',
-                        createdAt: '14 Apr 2026',
-                    },
-                ],
-            },
-            {
-                id: '1-2',
-                name: 'Videos',
-                type: 'folder',
-                createdAt: '13 Apr 2026',
-                children: [
-                    {
-                        id: 'vid1',
-                        name: 'video.mp4',
-                        type: 'file',
-                        fileType: 'video',
-                        url: 'https://www.w3schools.com/html/mov_bbb.mp4',
-                        size: '14.6 MB',
-                        createdAt: '10 Apr 2026',
-                    },
-                ],
-            },
-            {
-                id: '1-3',
-                name: 'Docs',
-                type: 'folder',
-                createdAt: '11 Apr 2026',
-                children: [
-                    {
-                        id: 'pdf1',
-                        name: 'file.pdf',
-                        type: 'file',
-                        fileType: 'pdf',
-                        url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-                        size: '860 KB',
-                        createdAt: '09 Apr 2026',
-                    },
-                ],
-            },
-        ],
-    },
-]
+        createdAt: formatDate(folder.created_at),
+        folderId: folder.id,
+        children: folder.files.map((file) => ({
+            id: `folder-${folder.id}-file-${file.file_index}`,
+            name: file.title?.trim() || file.file_name || `File ${file.file_index + 1}`,
+            type: 'file',
+            fileType: mapApiFileType(file.file_type),
+            url: file.file_url ?? undefined,
+            size: formatSizeFromName(file.file_name),
+            createdAt: formatDate(folder.updated_at || folder.created_at),
+            folderId: folder.id,
+            fileIndex: file.file_index,
+        })),
+    }))
+}
 
 function getAllFiles(nodes: FileNode[]): FileNode[] {
     let files: FileNode[] = []
@@ -175,57 +207,22 @@ function findPathById(nodes: FileNode[], id: string, parents: FileNode[] = []): 
     return []
 }
 
-function renameNodeById(nodes: FileNode[], id: string, newName: string): FileNode[] {
-    return nodes.map((node) => {
-        if (node.id === id) {
-            return {
-                ...node,
-                name: newName,
-            }
-        }
-
-        if (node.children) {
-            return {
-                ...node,
-                children: renameNodeById(node.children, id, newName),
-            }
-        }
-
-        return node
-    })
-}
-
-function deleteNodeById(nodes: FileNode[], id: string): FileNode[] {
-    return nodes
-        .filter((node) => node.id !== id)
-        .map((node) => {
-            if (node.children) {
-                return {
-                    ...node,
-                    children: deleteNodeById(node.children, id),
-                }
-            }
-
-            return node
-        })
-}
-
 function getPreview(file: FileNode) {
     if (file.type === 'folder') {
         return (
-            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-50 to-yellow-100">
+            <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-amber-50 to-yellow-100">
                 <Folder className="h-10 w-10 text-yellow-500" />
             </div>
         )
     }
 
-    if (file.fileType === 'image') {
+    if (file.fileType === 'image' && file.url) {
         return <img src={file.url} alt={file.name} className="h-full w-full object-cover" />
     }
 
     if (file.fileType === 'video') {
         return (
-            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-violet-50 to-purple-100">
+            <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-violet-50 to-purple-100">
                 <Video className="h-10 w-10 text-purple-500" />
             </div>
         )
@@ -233,14 +230,14 @@ function getPreview(file: FileNode) {
 
     if (file.fileType === 'pdf') {
         return (
-            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-red-50 to-rose-100">
+            <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-red-50 to-rose-100">
                 <FileText className="h-10 w-10 text-red-500" />
             </div>
         )
     }
 
     return (
-        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
+        <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-slate-50 to-slate-100">
             <File className="h-10 w-10 text-slate-500" />
         </div>
     )
@@ -291,14 +288,133 @@ function ItemActions({ item, onRename, onDelete }: ItemActionsProps) {
     )
 }
 
+type TreeNodeLabelProps = {
+    item: FileNode
+    isPrimary?: boolean
+    onSelect: (item: FileNode) => void
+    onRename: (item: FileNode) => void
+    onDelete: (item: FileNode) => void
+}
+
+function TreeNodeLabel({ item, isPrimary = false, onSelect, onRename, onDelete }: TreeNodeLabelProps) {
+    return (
+        <div className="flex w-60 items-center justify-between gap-4 pr-1 ">
+            <div
+                className={`flex min-w-0 flex-1 items-center gap-3 ${isPrimary ? 'text-primary' : ''}`}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    onSelect(item)
+                }}
+            >
+                {getIcon(item)}
+                <span className="truncate text-sm">{item.name}</span>
+            </div>
+
+            <div>
+                {item.type === 'folder' ? (
+                    <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <ItemActions item={item} onRename={onRename} onDelete={onDelete} />
+                    </div>
+                ) : null}
+            </div>
+        </div>
+    )
+}
+
 export default function Gallery() {
-    const [treeData, setTreeData] = React.useState<FileNode[]>(initialData)
+    const queryClient = useQueryClient()
+
+    const { data, isLoading, isError, refetch } = useQuery<GetGalleryResponse>({
+        queryKey: galleryQueryKey,
+        queryFn: getGalleryHandler,
+    })
+
+    const addFolderMutation = useMutation<AddFolderResponse, Error, AddFolderPayload>({
+        mutationFn: addFolderHandler,
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: galleryQueryKey })
+        },
+    })
+
+    const addFileMutation = useMutation<AddFileResponse, Error, AddFileMutationVariables>({
+        mutationFn: ({ folderId, payload }) => addFileHandler(folderId, payload),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: galleryQueryKey })
+        },
+    })
+
+    const updateFolderMutation = useMutation<UpdateFolderResponse, Error, UpdateFolderMutationVariables>({
+        mutationFn: ({ folderId, payload }) => updateFolderHandler(folderId, payload),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: galleryQueryKey })
+        },
+    })
+
+    const updateFileMutation = useMutation<UpdateFileResponse, Error, UpdateFileMutationVariables>({
+        mutationFn: ({ folderId, fileIndex, payload }) => updateFileHandler(folderId, fileIndex, payload),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: galleryQueryKey })
+        },
+    })
+
+    const deleteFolderMutation = useMutation<DeleteFolderResponse, Error, DeleteFolderMutationVariables>({
+        mutationFn: ({ folderId, payload }) => deleteFolderHandler(folderId, payload),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: galleryQueryKey })
+        },
+    })
+
+    const deleteFileMutation = useMutation<DeleteFileResponse, Error, DeleteFileMutationVariables>({
+        mutationFn: ({ folderId, fileIndex, payload }) => deleteFileHandler(folderId, fileIndex, payload),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: galleryQueryKey })
+        },
+    })
+
+    const folders = React.useMemo(() => {
+        if (!data?.success) return []
+        return data.data.folders
+    }, [data])
+
+    const treeData = React.useMemo(() => transformFoldersToTree(folders), [folders])
+
     const [selectedFolder, setSelectedFolder] = React.useState<string | null>(null)
     const [selectedFile, setSelectedFile] = React.useState<FileNode | null>(null)
     const [viewMode, setViewMode] = React.useState<ViewMode>('grid')
     const [renameTarget, setRenameTarget] = React.useState<FileNode | null>(null)
     const [deleteTarget, setDeleteTarget] = React.useState<FileNode | null>(null)
     const [renameValue, setRenameValue] = React.useState('')
+    const [createFolderOpen, setCreateFolderOpen] = React.useState(false)
+    const [addFileOpen, setAddFileOpen] = React.useState(false)
+    const [newFolderName, setNewFolderName] = React.useState('')
+    const [newFileTitle, setNewFileTitle] = React.useState('')
+    const [newFileDescription, setNewFileDescription] = React.useState('')
+    const [newFileLink, setNewFileLink] = React.useState('')
+    const [newFile, setNewFile] = React.useState<File | null>(null)
+
+    React.useEffect(() => {
+        if (!selectedFolder && treeData.length > 0) {
+            setSelectedFolder(treeData[0].id)
+        }
+    }, [treeData, selectedFolder])
+
+    React.useEffect(() => {
+        if (selectedFolder) {
+            const selectedExists = findNodeById(treeData, selectedFolder)
+            if (!selectedExists) {
+                setSelectedFolder(treeData[0]?.id ?? null)
+            }
+        }
+    }, [selectedFolder, treeData])
+
+    React.useEffect(() => {
+        if (selectedFile) {
+            const selectedExists = findNodeById(treeData, selectedFile.id)
+            if (!selectedExists) {
+                setSelectedFile(null)
+            }
+        }
+    }, [selectedFile, treeData])
 
     const allFiles = React.useMemo(() => getAllFiles(treeData), [treeData])
     const allItems = React.useMemo(() => getAllItems(treeData), [treeData])
@@ -319,12 +435,25 @@ export default function Gallery() {
         return []
     }, [selectedFolder, selectedFile, treeData])
 
+    const selectedFolderNode = React.useMemo(() => {
+        if (!selectedFolder) return null
+        return findNodeById(treeData, selectedFolder)
+    }, [selectedFolder, treeData])
+
     const handleFolderSelect = (folderId: string) => {
         setSelectedFolder(folderId)
         setSelectedFile(null)
     }
 
     const handleItemClick = (item: FileNode) => {
+        if (item.type === 'folder') {
+            handleFolderSelect(item.id)
+            return
+        }
+        setSelectedFile(item)
+    }
+
+    const handleTreeItemSelect = (item: FileNode) => {
         if (item.type === 'folder') {
             handleFolderSelect(item.id)
             return
@@ -341,17 +470,31 @@ export default function Gallery() {
         setDeleteTarget(item)
     }
 
-    const handleRenameSubmit = () => {
+    const handleRenameSubmit = async () => {
         if (!renameTarget) return
         const nextName = renameValue.trim()
         if (!nextName) return
 
-        setTreeData((prev) => renameNodeById(prev, renameTarget.id, nextName))
+        if (renameTarget.type === 'folder' && typeof renameTarget.folderId === 'number') {
+            await updateFolderMutation.mutateAsync({
+                folderId: renameTarget.folderId,
+                payload: {
+                    folder_name: nextName,
+                },
+            })
+        }
 
-        if (selectedFile?.id === renameTarget.id) {
-            setSelectedFile({
-                ...renameTarget,
-                name: nextName,
+        if (
+            renameTarget.type === 'file' &&
+            typeof renameTarget.folderId === 'number' &&
+            typeof renameTarget.fileIndex === 'number'
+        ) {
+            await updateFileMutation.mutateAsync({
+                folderId: renameTarget.folderId,
+                fileIndex: renameTarget.fileIndex,
+                payload: {
+                    title: nextName,
+                },
             })
         }
 
@@ -359,10 +502,25 @@ export default function Gallery() {
         setRenameValue('')
     }
 
-    const handleDeleteSubmit = () => {
+    const handleDeleteSubmit = async () => {
         if (!deleteTarget) return
 
-        setTreeData((prev) => deleteNodeById(prev, deleteTarget.id))
+        if (deleteTarget.type === 'folder' && typeof deleteTarget.folderId === 'number') {
+            await deleteFolderMutation.mutateAsync({
+                folderId: deleteTarget.folderId,
+            })
+        }
+
+        if (
+            deleteTarget.type === 'file' &&
+            typeof deleteTarget.folderId === 'number' &&
+            typeof deleteTarget.fileIndex === 'number'
+        ) {
+            await deleteFileMutation.mutateAsync({
+                folderId: deleteTarget.folderId,
+                fileIndex: deleteTarget.fileIndex,
+            })
+        }
 
         if (selectedFile?.id === deleteTarget.id) {
             setSelectedFile(null)
@@ -375,13 +533,82 @@ export default function Gallery() {
         setDeleteTarget(null)
     }
 
+    const handleAddFolder = async () => {
+        const folderName = newFolderName.trim()
+        if (!folderName) return
+
+        const response = await addFolderMutation.mutateAsync({
+            folder_name: folderName,
+        })
+
+        setNewFolderName('')
+        setCreateFolderOpen(false)
+
+        if (response.success) {
+            setSelectedFolder(`folder-${response.data.id}`)
+        }
+    }
+
+    const handleAddFile = async () => {
+        if (!selectedFolderNode || typeof selectedFolderNode.folderId !== 'number') return
+        if (!newFile && !newFileLink.trim()) return
+
+        await addFileMutation.mutateAsync({
+            folderId: selectedFolderNode.folderId,
+            payload: {
+                title: newFileTitle.trim() || undefined,
+                description: newFileDescription.trim() || undefined,
+                link: newFileLink.trim() || undefined,
+                file: newFile ?? undefined,
+            },
+        })
+
+        setNewFileTitle('')
+        setNewFileDescription('')
+        setNewFileLink('')
+        setNewFile(null)
+        setAddFileOpen(false)
+    }
+
+    const isMutating =
+        addFolderMutation.isPending ||
+        addFileMutation.isPending ||
+        updateFolderMutation.isPending ||
+        updateFileMutation.isPending ||
+        deleteFolderMutation.isPending ||
+        deleteFileMutation.isPending
+
+    if (isLoading) {
+        return (
+            <div className="flex h-[calc(100vh-80px)] w-full items-center justify-center rounded-xl border bg-background">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Loading gallery...</span>
+                </div>
+            </div>
+        )
+    }
+
+    if (isError) {
+        return (
+            <div className="flex h-[calc(100vh-80px)] w-full items-center justify-center rounded-xl border bg-background">
+                <div className="space-y-3 text-center">
+                    <div className="text-sm text-muted-foreground">Failed to load gallery data</div>
+                    <Button onClick={() => refetch()} variant="outline">
+                        Retry
+                    </Button>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <>
             <div className="flex h-[calc(100vh-80px)] w-full overflow-hidden rounded-xl border bg-background">
                 <div className="w-72 border-r bg-muted/20">
                     <div className="flex justify-between border-b px-4 py-2">
                         <Label>All folders</Label>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={() => setCreateFolderOpen(true)}>
                             <FolderPlus className="text-primary" />
                         </Button>
                     </div>
@@ -394,10 +621,13 @@ export default function Gallery() {
                                     id={node.id}
                                     onClick={() => node.type === 'folder' && handleFolderSelect(node.id)}
                                     label={
-                                        <div className="flex items-center gap-2 text-primary">
-                                            {getIcon(node)}
-                                            <span className="text-sm">{node.name}</span>
-                                        </div>
+                                        <TreeNodeLabel
+                                            item={node}
+                                            isPrimary
+                                            onSelect={handleTreeItemSelect}
+                                            onRename={openRenameDialog}
+                                            onDelete={openDeleteDialog}
+                                        />
                                     }
                                 >
                                     {node.children?.map((child) => (
@@ -406,10 +636,12 @@ export default function Gallery() {
                                             id={child.id}
                                             onClick={() => child.type === 'folder' && handleFolderSelect(child.id)}
                                             label={
-                                                <div className="flex items-center gap-2">
-                                                    {getIcon(child)}
-                                                    <span className="text-sm">{child.name}</span>
-                                                </div>
+                                                <TreeNodeLabel
+                                                    item={child}
+                                                    onSelect={handleTreeItemSelect}
+                                                    onRename={openRenameDialog}
+                                                    onDelete={openDeleteDialog}
+                                                />
                                             }
                                         />
                                     ))}
@@ -439,11 +671,10 @@ export default function Gallery() {
                                                             setSelectedFile(item)
                                                         }
                                                     }}
-                                                    className={`inline-flex items-center rounded-md transition ${
-                                                        isLast
-                                                            ? 'font-semibold text-primary'
-                                                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                                                    }`}
+                                                    className={`inline-flex items-center rounded-md transition ${isLast
+                                                        ? 'font-semibold text-primary'
+                                                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                                                        }`}
                                                 >
                                                     <span>{item.name}</span>
                                                 </Button>
@@ -464,7 +695,7 @@ export default function Gallery() {
                                         <LayoutGrid className="h-4 w-4" />
                                     </Button>
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-52 rounded-xl">
+                                <DropdownMenuContent align="end" className="w-52 rounded-xl ">
                                     <DropdownMenuItem onClick={() => setViewMode('list')} className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <List className="h-4 w-4" />
@@ -489,10 +720,16 @@ export default function Gallery() {
                                 </DropdownMenuContent>
                             </DropdownMenu>
 
-                            <Button variant="outline" size="sm" className="rounded-lg">
+                            <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setCreateFolderOpen(true)}>
                                 <FolderPlus className="h-4 w-4" />
                             </Button>
-                            <Button variant="outline" size="sm" className="rounded-lg">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="rounded-lg"
+                                onClick={() => setAddFileOpen(true)}
+                                disabled={!selectedFolderNode || selectedFolderNode.type !== 'folder'}
+                            >
                                 <FilePlus className="h-4 w-4" />
                             </Button>
                         </div>
@@ -505,9 +742,8 @@ export default function Gallery() {
                                     <div
                                         key={item.id}
                                         onClick={() => handleItemClick(item)}
-                                        className={`cursor-pointer rounded-xl border bg-card shadow-sm transition hover:shadow-md ${
-                                            selectedFile?.id === item.id ? 'border-primary ring-1 ring-primary/30' : ''
-                                        }`}
+                                        className={`cursor-pointer rounded-xl border bg-card shadow-sm transition hover:shadow-md ${selectedFile?.id === item.id ? 'border-primary ring-1 ring-primary/30' : ''
+                                            }`}
                                     >
                                         <div className="relative">
                                             <div className="absolute right-2 top-2 z-10">
@@ -534,9 +770,8 @@ export default function Gallery() {
                                     <div
                                         key={item.id}
                                         onClick={() => handleItemClick(item)}
-                                        className={`flex cursor-pointer items-center gap-3 rounded-xl border bg-card px-3 py-3 transition hover:bg-muted/40 ${
-                                            selectedFile?.id === item.id ? 'border-primary ring-1 ring-primary/30' : ''
-                                        }`}
+                                        className={`flex cursor-pointer items-center gap-3 rounded-xl border bg-card px-3 py-3 transition hover:bg-muted/40 ${selectedFile?.id === item.id ? 'border-primary ring-1 ring-primary/30' : ''
+                                            }`}
                                     >
                                         <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-slate-50">
                                             {getPreview(item)}
@@ -571,9 +806,8 @@ export default function Gallery() {
                                         <div
                                             key={item.id}
                                             onClick={() => handleItemClick(item)}
-                                            className={`grid cursor-pointer grid-cols-12 items-center px-4 py-3 transition hover:bg-muted/30 ${
-                                                selectedFile?.id === item.id ? 'bg-primary/5' : ''
-                                            }`}
+                                            className={`grid cursor-pointer grid-cols-12 items-center px-4 py-3 transition hover:bg-muted/30 ${selectedFile?.id === item.id ? 'bg-primary/5' : ''
+                                                }`}
                                         >
                                             <div className="col-span-5 flex min-w-0 items-center gap-3">
                                                 <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-slate-50">
@@ -610,24 +844,47 @@ export default function Gallery() {
                                 </div>
                             </div>
                         )}
+
+                        {!filteredItems.length && (
+                            <div className="flex h-full min-h-75 items-center justify-center rounded-xl border border-dashed">
+                                <div className="text-center">
+                                    <div className="text-sm font-medium">No files found</div>
+                                    <div className="mt-1 text-xs text-muted-foreground">
+                                        Add a folder or upload a file to get started
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 <Dialog open={!!selectedFile} onOpenChange={() => setSelectedFile(null)}>
                     <DialogContent className="p-1 lg:max-w-4xl">
-                        <div className="max-h-[60vh] w-full">
-                            {selectedFile?.fileType === 'image' && (
+                        <div className="max-h-[60vh] min-h-100 w-full">
+                            {selectedFile?.fileType === 'image' && selectedFile.url && (
                                 <img src={selectedFile.url} alt={selectedFile.name} className="h-full w-full object-contain" />
                             )}
-                            {selectedFile?.fileType === 'video' && (
+                            {selectedFile?.fileType === 'video' && selectedFile.url && (
                                 <video src={selectedFile.url} controls className="h-full w-full" />
                             )}
-                            {selectedFile?.fileType === 'pdf' && (
-                                <iframe src={selectedFile.url} className="h-full w-full" />
+                            {selectedFile?.fileType === 'pdf' && selectedFile.url && (
+                                <iframe src={selectedFile.url} className="h-[70vh] w-full" />
                             )}
                             {selectedFile?.fileType === 'other' && (
-                                <div className="flex h-full items-center justify-center text-sm text-white">
-                                    Preview not available
+                                <div className="flex h-full min-h-100 flex-col items-center justify-center gap-3 text-sm">
+                                    <File className="h-10 w-10 text-muted-foreground" />
+                                    <div>Preview not available</div>
+                                    {selectedFile.url ? (
+                                        <a
+                                            href={selectedFile.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+                                        >
+                                            <LinkIcon className="h-4 w-4" />
+                                            <span>Open file</span>
+                                        </a>
+                                    ) : null}
                                 </div>
                             )}
                         </div>
@@ -670,8 +927,12 @@ export default function Gallery() {
                         >
                             Cancel
                         </Button>
-                        <Button onClick={handleRenameSubmit} disabled={!renameValue.trim()}>
-                            Rename
+                        <Button onClick={handleRenameSubmit} disabled={!renameValue.trim() || isMutating}>
+                            {updateFolderMutation.isPending || updateFileMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                'Rename'
+                            )}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -685,7 +946,7 @@ export default function Gallery() {
                     }
                 }}
             >
-                <DialogContent className="sm:max-w-md">
+                <DialogContent className="sm:max-w-md ">
                     <DialogHeader>
                         <DialogTitle>{deleteTarget?.type === 'folder' ? 'Delete Folder' : 'Delete File'}</DialogTitle>
                         <DialogDescription>
@@ -701,8 +962,118 @@ export default function Gallery() {
                         <Button variant="outline" onClick={() => setDeleteTarget(null)}>
                             Cancel
                         </Button>
-                        <Button variant="destructive" onClick={handleDeleteSubmit}>
-                            Delete
+                        <Button variant="destructive" onClick={handleDeleteSubmit} disabled={isMutating}>
+                            {deleteFolderMutation.isPending || deleteFileMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                'Delete'
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog
+                open={createFolderOpen}
+                onOpenChange={(open) => {
+                    setCreateFolderOpen(open)
+                    if (!open) {
+                        setNewFolderName('')
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Add Folder</DialogTitle>
+                        <DialogDescription>Create a new folder for your gallery files.</DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-2">
+                        <Input
+                            value={newFolderName}
+                            onChange={(e) => setNewFolderName(e.target.value)}
+                            placeholder="Enter folder name"
+                        />
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setCreateFolderOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleAddFolder} disabled={!newFolderName.trim() || addFolderMutation.isPending}>
+                            {addFolderMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog
+                open={addFileOpen}
+                onOpenChange={(open) => {
+                    setAddFileOpen(open)
+                    if (!open) {
+                        setNewFileTitle('')
+                        setNewFileDescription('')
+                        setNewFileLink('')
+                        setNewFile(null)
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>Add File</DialogTitle>
+                        <DialogDescription>
+                            Upload a file or provide a file link inside{' '}
+                            <span className="font-medium">{selectedFolderNode?.name ?? 'selected folder'}</span>.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-2">
+                            <Label>Title</Label>
+                            <Input
+                                value={newFileTitle}
+                                onChange={(e) => setNewFileTitle(e.target.value)}
+                                placeholder="Enter file title"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Description</Label>
+                            <Input
+                                value={newFileDescription}
+                                onChange={(e) => setNewFileDescription(e.target.value)}
+                                placeholder="Enter description"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>File link</Label>
+                            <Input
+                                value={newFileLink}
+                                onChange={(e) => setNewFileLink(e.target.value)}
+                                placeholder="Paste file link"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Upload file</Label>
+                            <Input
+                                type="file"
+                                onChange={(e) => setNewFile(e.target.files?.[0] ?? null)}
+                            />
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setAddFileOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleAddFile}
+                            disabled={addFileMutation.isPending || (!newFile && !newFileLink.trim())}
+                        >
+                            {addFileMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add File'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

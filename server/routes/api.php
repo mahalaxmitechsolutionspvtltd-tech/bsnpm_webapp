@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DataEntryController;
 use App\Http\Controllers\DepositeController;
 use App\Http\Controllers\DividantController;
+use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\LoanController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\MemberInvestmentPortfolioController;
@@ -95,6 +96,18 @@ Route::middleware([AdminAuthMiddleware::class])->group(function () {
     Route::get('v1/divident/member-share-capital', [DividantController::class, 'getAllMemberShareCapital']);
     Route::get('v1/divident', [DividantController::class, 'getAllDividants']);
     Route::post('v1/divident/create', [DividantController::class, 'createDividantDeclaration']);
+
+
+    // Gallery
+
+    Route::get('v1/gallery/get-data', [GalleryController::class, 'getData']);
+    Route::post('v1/gallery/add-folder', [GalleryController::class, 'addFolder']);
+    Route::post('v1/gallery/folder/{folderId}/add-file', [GalleryController::class, 'addFile']);
+    Route::patch('v1/gallery/folder/{folderId}/update-folder', [GalleryController::class, 'updateFolder']);
+    Route::post('v1/gallery/folder/{folderId}/file/{fileIndex}/update-file', [GalleryController::class, 'updateFile']);
+    Route::delete('v1/gallery/folder/{folderId}/delete-folder', [GalleryController::class, 'deleteFolder']);
+    Route::delete('v1/gallery/folder/{folderId}/file/{fileIndex}/delete-file', [GalleryController::class, 'deleteFile']);
+
 
 
 });
