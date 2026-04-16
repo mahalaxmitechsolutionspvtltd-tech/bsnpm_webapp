@@ -4,7 +4,7 @@ import * as React from "react"
 import { format } from "date-fns"
 import { CalendarIcon, Loader2 } from "lucide-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { createNoticeHandler } from "@/services/noticHandler"
+import { createNoticeHandler } from "@/services/noticeHandler"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {

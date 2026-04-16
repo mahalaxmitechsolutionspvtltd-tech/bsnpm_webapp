@@ -16,7 +16,7 @@ import {
     Users,
 } from "lucide-react"
 import { format } from "date-fns"
-import { deleteHandler, getNoticeHandler } from "@/services/noticHandler"
+import { deleteHandler, getNoticeHandler } from "@/services/noticeHandler"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -157,7 +157,7 @@ function NoticeRow({
                             <h3 className="truncate text-sm font-semibold text-foreground">
                                 {notice.title || "Untitled Notice"}
                             </h3>
-                            <p className="mt-0.5 break-words whitespace-pre-line text-[13px] leading-5 text-muted-foreground">
+                            <p className="mt-0.5 wrap-break-word whitespace-pre-line text-[13px] leading-5 text-muted-foreground">
                                 {notice.message || "No message available"}
                             </p>
                         </div>
@@ -320,7 +320,7 @@ export default function NoticesPage() {
     return (
         <>
             <div className="w-full px-3 py-3 md:px-5 lg:px-6">
-                <div className="mx-auto w-full max-w-[1600px] space-y-4">
+                <div className="mx-auto w-full max-w-400 space-y-4">
                     <Card className="overflow-hidden">
                         <CardHeader className="space-y-4 border-b bg-muted/20 px-4 py-4 md:px-5">
                             <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_180px_42px_auto]">
