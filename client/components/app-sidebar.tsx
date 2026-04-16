@@ -180,24 +180,24 @@ const data = {
           url: "/admin/dashboard/communications/notices",
         },
         {
-          title: "AGN / EGM",
-          url: "#",
+          title: "AGM / EGM",
+          url: "/admin/dashboard/communications/agm-egm",
         },
         {
           title: "Meeting Minutes",
-          url: "#",
+          url: "/admin/dashboard/communications/meeting-minutes",
         },
         {
           title: "Sms Alerts",
-          url: "#"
+          url: "/admin/dashboard/communications/sms-alerts"
         },
         {
           title: "Complains",
-          url: "#"
+          url: "/admin/dashboard/communications/complains"
         },
         {
           title: "Helps Desk",
-          url: "#"
+          url: "/admin/dashboard/communications/help-desk"
         },
 
       ],
@@ -220,7 +220,7 @@ const data = {
     },
     {
       name: "Analytics Hub",
-      url: "#",
+      url: "/admin/dashboard/analytics",
       icon: (
         <ChartNoAxesCombined
         />

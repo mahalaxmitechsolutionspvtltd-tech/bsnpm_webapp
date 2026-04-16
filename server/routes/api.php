@@ -10,6 +10,7 @@ use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\LoanController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\MemberInvestmentPortfolioController;
+use App\Http\Controllers\NoticeController;
 use App\Http\Controllers\PaymentsHistoryController;
 use App\Http\Controllers\TrialBalanceController;
 use App\Http\Middleware\AdminAuthMiddleware;
@@ -108,6 +109,13 @@ Route::middleware([AdminAuthMiddleware::class])->group(function () {
     Route::delete('v1/gallery/folder/{folderId}/delete-folder', [GalleryController::class, 'deleteFolder']);
     Route::delete('v1/gallery/folder/{folderId}/file/{fileIndex}/delete-file', [GalleryController::class, 'deleteFile']);
 
+
+    // COMMUNICATIONS
+
+    Route::get('v1/notices', [NoticeController::class, 'getNotices']);
+    Route::post('v1/notices', [NoticeController::class, 'createNotice']);
+    Route::put('v1/notices/{id}', [NoticeController::class, 'updateNotice']);
+    Route::delete('v1/notices/{id}', [NoticeController::class, 'deleteNotice']);
 
 
 });

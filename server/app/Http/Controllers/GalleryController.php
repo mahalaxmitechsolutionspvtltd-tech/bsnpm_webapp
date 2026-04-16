@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 class GalleryController extends Controller
 {
@@ -136,9 +137,13 @@ class GalleryController extends Controller
             ], 404);
         }
 
-        $files = is_array($gallery->photos_json) ? array_values($gallery->photos_json) : [];
         $storedLink = $this->storeUploadedFile($request);
 
+        if ($storedLink instanceof JsonResponse) {
+            return $storedLink;
+        }
+
+        $files = is_array($gallery->photos_json) ? array_values($gallery->photos_json) : [];
         $files[] = [
             'title' => $this->normalizeNullableString($request->input('title')),
             'link' => $storedLink,
@@ -278,6 +283,10 @@ class GalleryController extends Controller
 
         if ($request->hasFile('file') || $request->filled('link')) {
             $newLink = $this->storeUploadedFile($request);
+
+            if ($newLink instanceof JsonResponse) {
+                return $newLink;
+            }
 
             if ($replaceExistingFile && !empty($existingFile['link']) && $newLink !== (string) $existingFile['link']) {
                 $this->deletePhysicalFile((string) $existingFile['link']);
@@ -464,27 +473,51 @@ class GalleryController extends Controller
                     'file_name' => $fileName,
                     'extension' => $extension !== '' ? $extension : null,
                     'file_type' => $this->detectFileType($extension),
-                    'file_url' => $this->resolveFileUrl($rawLink),
+                    'file_url' => $this->resolveFileUrl($fileName),
                     'previewable' => $this->isPreviewable($extension),
                 ];
             });
     }
 
-    private function storeUploadedFile(Request $request): string
+    private function storeUploadedFile(Request $request): string|JsonResponse
     {
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $directoryPath = public_path($this->publicDirectory);
 
-            if (!is_dir($directoryPath)) {
-                mkdir($directoryPath, 0775, true);
+            if (!$file instanceof UploadedFile || !$file->isValid()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Uploaded file is invalid',
+                ], 422);
+            }
+
+            $uploadDirectory = '/home/u337215155/domains/bsnpm.in/public_html/gallery_files';
+
+            if (!is_dir($uploadDirectory)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Upload directory not found',
+                    'errors' => [
+                        'upload_path' => [$uploadDirectory],
+                    ],
+                ], 500);
+            }
+
+            if (!is_writable($uploadDirectory)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Upload directory is not writable',
+                    'errors' => [
+                        'upload_path' => [$uploadDirectory],
+                    ],
+                ], 500);
             }
 
             $originalName = $file->getClientOriginalName();
             $safeOriginalName = preg_replace('/[^A-Za-z0-9\-\_\.]/', '_', (string) $originalName);
             $fileName = time() . '_' . $safeOriginalName;
 
-            $file->move($directoryPath, $fileName);
+            $file->move($uploadDirectory, $fileName);
 
             return $fileName;
         }
@@ -512,7 +545,7 @@ class GalleryController extends Controller
             return;
         }
 
-        $fullPath = public_path($this->publicDirectory . '/' . $fileName);
+        $fullPath = '/home/u337215155/domains/bsnpm.in/public_html/gallery_files' . DIRECTORY_SEPARATOR . $fileName;
 
         if (is_file($fullPath)) {
             @unlink($fullPath);
@@ -635,12 +668,6 @@ class GalleryController extends Controller
             return null;
         }
 
-        $fullPath = public_path($this->publicDirectory . '/' . $fileName);
-
-        if (is_file($fullPath)) {
-            return url($this->publicDirectory . '/' . $fileName);
-        }
-
-        return url($this->publicDirectory . '/' . $fileName);
+        return 'https://bsnpm.in/gallery_files/' . ltrim($fileName, '/');
     }
 }
