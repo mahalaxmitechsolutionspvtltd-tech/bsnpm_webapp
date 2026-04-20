@@ -1,70 +1,92 @@
 "use client"
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { useId, useMemo } from "react"
 import { Column } from "@tanstack/react-table"
 import { SearchIcon } from "lucide-react"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
-export default function Filter({ column }: { column: Column<any, unknown> }) {
+type FilterVariant = "text" | "range" | "select"
+
+type ColumnMetaShape = {
+    filterVariant?: FilterVariant
+}
+
+type FilterProps<TData> = {
+    column: Column<TData, unknown>
+}
+
+export default function Filter<TData>({ column }: FilterProps<TData>) {
     const id = useId()
+    const labelId = `${id}-label`
     const columnFilterValue = column.getFilterValue()
-    const { filterVariant } = column.columnDef.meta ?? {}
+    const meta = (column.columnDef.meta as ColumnMetaShape | undefined) ?? {}
+    const { filterVariant } = meta
     const columnHeader = typeof column.columnDef.header === "string" ? column.columnDef.header : ""
+
+    const filterLabel = filterVariant === "text" ? "Search" : "Sort"
 
     const sortedUniqueValues = useMemo(() => {
         if (filterVariant === "range") return []
 
-        const values = Array.from(column.getFacetedUniqueValues().keys())
+        const uniqueValues = Array.from(column.getFacetedUniqueValues().keys()).filter(
+            (value): value is string | number => typeof value === "string" || typeof value === "number"
+        )
 
-        const flattenedValues = values.reduce((acc: string[], curr) => {
-            if (Array.isArray(curr)) {
-                return [...acc, ...curr.map((item) => String(item ?? "").trim())]
-            }
-
-            return [...acc, String(curr ?? "").trim()]
-        }, [])
-
-        return Array.from(
-            new Set(
-                flattenedValues.filter((value) => value !== "" && value !== "-" && value.toLowerCase() !== "null" && value.toLowerCase() !== "undefined")
-            )
-        ).sort((a, b) => a.localeCompare(b))
+        return uniqueValues.sort((a, b) => String(a).localeCompare(String(b)))
     }, [column, filterVariant])
 
     if (filterVariant === "range") {
+        const minMaxValues = column.getFacetedMinMaxValues()
+        const min = typeof minMaxValues?.[0] === "number" ? minMaxValues[0] : undefined
+        const max = typeof minMaxValues?.[1] === "number" ? minMaxValues[1] : undefined
+        const currentValue = Array.isArray(columnFilterValue)
+            ? (columnFilterValue as [number | undefined, number | undefined])
+            : [undefined, undefined]
+
         return (
-            <div className="*:not-first:mt-2">
-                <Label>{columnHeader}</Label>
-                <div className="flex overflow-hidden rounded-md">
+            <div className="space-y-2">
+                <label id={labelId} htmlFor={`${id}-min`} className="text-sm font-medium text-foreground">
+                    {filterLabel}
+                </label>
+                <div className="flex gap-2">
                     <Input
-                        id={`${id}-range-1`}
-                        className="flex-1 rounded-lg border-r-0 [-moz-appearance:textfield] focus:z-10 [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
-                        value={(columnFilterValue as [number, number])?.[0] ?? ""}
-                        onChange={e =>
-                            column.setFilterValue((old: [number, number]) => [
+                        id={`${id}-min`}
+                        type="number"
+                        value={currentValue[0] ?? ""}
+                        min={min}
+                        max={max}
+                        onChange={(e) =>
+                            column.setFilterValue((old: [number | undefined, number | undefined] | undefined) => [
                                 e.target.value ? Number(e.target.value) : undefined,
-                                old?.[1]
+                                old?.[1],
                             ])
                         }
                         placeholder="Min"
-                        type="number"
-                        aria-label={`${columnHeader} min`}
+                        className="h-9 rounded-lg"
+                        aria-labelledby={labelId}
                     />
                     <Input
-                        id={`${id}-range-2`}
-                        className="flex-1 rounded-md [-moz-appearance:textfield] focus:z-10 [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
-                        value={(columnFilterValue as [number, number])?.[1] ?? ""}
-                        onChange={e =>
-                            column.setFilterValue((old: [number, number]) => [
+                        id={`${id}-max`}
+                        type="number"
+                        value={currentValue[1] ?? ""}
+                        min={min}
+                        max={max}
+                        onChange={(e) =>
+                            column.setFilterValue((old: [number | undefined, number | undefined] | undefined) => [
                                 old?.[0],
-                                e.target.value ? Number(e.target.value) : undefined
+                                e.target.value ? Number(e.target.value) : undefined,
                             ])
                         }
                         placeholder="Max"
-                        type="number"
-                        aria-label={`${columnHeader} max`}
+                        className="h-9 rounded-lg"
+                        aria-labelledby={labelId}
                     />
                 </div>
             </div>
@@ -73,20 +95,20 @@ export default function Filter({ column }: { column: Column<any, unknown> }) {
 
     if (filterVariant === "select") {
         return (
-            <div className="*:not-first:mt-2">
-                <Label htmlFor={`${id}-select`}>{columnHeader}</Label>
+            <div className="space-y-2">
+                <label id={labelId} htmlFor={id} className="text-sm font-medium text-foreground">
+                    {filterLabel}
+                </label>
                 <Select
-                    value={columnFilterValue?.toString() ?? "all"}
-                    onValueChange={value => {
-                        column.setFilterValue(value === "all" ? undefined : value)
-                    }}
+                    value={(columnFilterValue ?? "") as string}
+                    onValueChange={(value) => column.setFilterValue(value === "__all__" ? "" : value)}
                 >
-                    <SelectTrigger id={`${id}-select`} className="w-full rounded-xl">
-                        <SelectValue placeholder={`Select ${columnHeader.toLowerCase()}`} />
+                    <SelectTrigger id={id} aria-labelledby={labelId} className="h-9 w-full rounded-lg capitalize">
+                        <SelectValue placeholder="All" />
                     </SelectTrigger>
-                    <SelectContent className="rounded-md">
-                        <SelectItem value="all">All</SelectItem>
-                        {sortedUniqueValues.map(value => (
+                    <SelectContent className="rounded-lg">
+                        <SelectItem value="__all__">All</SelectItem>
+                        {sortedUniqueValues.map((value) => (
                             <SelectItem key={String(value)} value={String(value)}>
                                 {String(value)}
                             </SelectItem>
@@ -98,20 +120,21 @@ export default function Filter({ column }: { column: Column<any, unknown> }) {
     }
 
     return (
-        <div className="*:not-first:mt-2">
-            <Label htmlFor={`${id}-input`}>{columnHeader}</Label>
+        <div className="space-y-2">
+            <label id={labelId} htmlFor={id} className="text-sm font-medium text-foreground">
+                {filterLabel}
+            </label>
             <div className="relative">
                 <Input
-                    id={`${id}-input`}
-                    className="peer rounded-md pl-9"
-                    value={(columnFilterValue ?? "") as string}
-                    onChange={e => column.setFilterValue(e.target.value)}
-                    placeholder={`Search by name, id, email or mobile`}
+                    id={id}
                     type="text"
+                    value={(columnFilterValue ?? "") as string}
+                    onChange={(e) => column.setFilterValue(e.target.value)}
+                    placeholder={`Search ${columnHeader.toLowerCase() || "value"}`}
+                    className="h-9 rounded-lg pl-9 capitalize"
+                    aria-labelledby={labelId}
                 />
-                <div className="text-muted-foreground/80 pointer-events-none absolute inset-y-0 left-0 flex items-center justify-center pl-3 peer-disabled:opacity-50">
-                    <SearchIcon size={16} />
-                </div>
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             </div>
         </div>
     )

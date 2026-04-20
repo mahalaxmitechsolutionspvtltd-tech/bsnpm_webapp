@@ -17,8 +17,9 @@ import {
     LockKeyhole,
     TrendingUp,
 } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 import { Card, CardContent } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
+import { getDashboardOverviewHandler } from "@/services/dashboardOverviewHandler"
 
 type DashboardStat = {
     key: string
@@ -26,11 +27,6 @@ type DashboardStat = {
     value: number
     subtitle: string
     icon: React.ElementType
-}
-
-type DashboardPayload = {
-    overview: DashboardStat[]
-    depositSchemes: DashboardStat[]
 }
 
 const iconWrapMap: Record<string, string> = {
@@ -50,125 +46,6 @@ const iconWrapMap: Record<string, string> = {
     damduppat: "bg-orange-50 text-orange-600 border-orange-100",
     fixed_deposit: "bg-emerald-50 text-emerald-600 border-emerald-100",
     total_deposit_schemes: "bg-pink-50 text-pink-600 border-pink-100",
-}
-
-const dashboardData: DashboardPayload = {
-    overview: [
-        {
-            key: "total_members",
-            title: "Total Members",
-            value: 3,
-            subtitle: "Active members count",
-            icon: Users,
-        },
-        {
-            key: "joining_fee",
-            title: "Total Member Joining Fee",
-            value: 300,
-            subtitle: "Total collected fees",
-            icon: CreditCard,
-        },
-        {
-            key: "loan_amount",
-            title: "Total Loan Amount",
-            value: 0,
-            subtitle: "Sanctioned total",
-            icon: Landmark,
-        },
-        {
-            key: "loan_outstanding",
-            title: "Total Loan Outstanding",
-            value: 0,
-            subtitle: "As per EMI schedule",
-            icon: WalletCards,
-        },
-        {
-            key: "share_capital",
-            title: "Total Share Capital",
-            value: 1199000,
-            subtitle: "Latest ledger totals",
-            icon: CircleDollarSign,
-        },
-        {
-            key: "emergency_fund",
-            title: "Total Emergency Fund",
-            value: 43000,
-            subtitle: "Latest ledger totals",
-            icon: ShieldCheck,
-        },
-        {
-            key: "kayam_thev",
-            title: "Total Kayam Thev",
-            value: 10000,
-            subtitle: "Paid deductions sum",
-            icon: Banknote,
-        },
-        {
-            key: "active_loans",
-            title: "Total Active Loans",
-            value: 0,
-            subtitle: "Active loan accounts count",
-            icon: BriefcaseBusiness,
-        },
-    ],
-    depositSchemes: [
-        {
-            key: "recurring_deposit",
-            title: "Recurring Deposit",
-            value: 500,
-            subtitle: "Scheme active total",
-            icon: BadgeIndianRupee,
-        },
-        {
-            key: "lakhpati_3y",
-            title: "Lakhpati Yojna (3Y)",
-            value: 0,
-            subtitle: "Scheme active total",
-            icon: Star,
-        },
-        {
-            key: "lakhpati_5y",
-            title: "Lakhpati Yojna (5Y)",
-            value: 0,
-            subtitle: "Scheme active total",
-            icon: PiggyBank,
-        },
-        {
-            key: "term_deposit_1_3",
-            title: "Term Deposit (1–3Y)",
-            value: 0,
-            subtitle: "Scheme active total",
-            icon: CalendarDays,
-        },
-        {
-            key: "term_deposit_5_10",
-            title: "Term Deposit (5–10Y)",
-            value: 0,
-            subtitle: "Scheme active total",
-            icon: CalendarDays,
-        },
-        {
-            key: "damduppat",
-            title: "Damduppat",
-            value: 0,
-            subtitle: "Scheme active total",
-            icon: HandCoins,
-        },
-        {
-            key: "fixed_deposit",
-            title: "Fixed Deposit",
-            value: 0,
-            subtitle: "Scheme active total",
-            icon: LockKeyhole,
-        },
-        {
-            key: "total_deposit_schemes",
-            title: "Total Deposits (Schemes)",
-            value: 500,
-            subtitle: "Sum of scheme KPIs",
-            icon: TrendingUp,
-        },
-    ],
 }
 
 const currencyKeys = new Set([
@@ -199,8 +76,6 @@ function formatValue(stat: DashboardStat) {
 
     return new Intl.NumberFormat("en-IN").format(stat.value)
 }
-
-
 
 function KpiCard({ item }: { item: DashboardStat }) {
     const Icon = item.icon
@@ -233,8 +108,130 @@ function KpiCard({ item }: { item: DashboardStat }) {
         </Card>
     )
 }
+
 export default function AdminDashboard() {
-    const { overview, depositSchemes } = dashboardData
+    const { data } = useQuery({
+        queryKey: ["dashboard-overview"],
+        queryFn: () => getDashboardOverviewHandler(),
+    })
+
+    const overview: DashboardStat[] = [
+        {
+            key: "total_members",
+            title: "Total Members",
+            value: Number(data?.kpis?.total_members?.count ?? 0),
+            subtitle: "Active members count",
+            icon: Users,
+        },
+        {
+            key: "joining_fee",
+            title: "Total Member Joining Fee",
+            value: Number(data?.kpis?.total_member_joining_fee?.amount ?? 0),
+            subtitle: "Total collected fees",
+            icon: CreditCard,
+        },
+        {
+            key: "loan_amount",
+            title: "Total Loan Amount",
+            value: Number(data?.kpis?.total_loan_amount?.amount ?? 0),
+            subtitle: "Sanctioned total",
+            icon: Landmark,
+        },
+        {
+            key: "loan_outstanding",
+            title: "Total Loan Outstanding",
+            value: Number(data?.kpis?.total_loan_outstanding?.amount ?? 0),
+            subtitle: "As per EMI schedule",
+            icon: WalletCards,
+        },
+        {
+            key: "share_capital",
+            title: "Total Share Capital",
+            value: Number(data?.kpis?.total_share_capital?.amount ?? 0),
+            subtitle: "Latest ledger totals",
+            icon: CircleDollarSign,
+        },
+        {
+            key: "emergency_fund",
+            title: "Total Emergency Fund",
+            value: Number(data?.kpis?.total_emergency_fund?.amount ?? 0),
+            subtitle: "Latest ledger totals",
+            icon: ShieldCheck,
+        },
+        {
+            key: "kayam_thev",
+            title: "Total Kayam Thev",
+            value: Number(data?.kpis?.total_kayam_thev?.amount ?? 0),
+            subtitle: "Paid deductions sum",
+            icon: Banknote,
+        },
+        {
+            key: "active_loans",
+            title: "Total Active Loans",
+            value: Number(data?.kpis?.total_active_loans?.count ?? 0),
+            subtitle: "Active loan accounts count",
+            icon: BriefcaseBusiness,
+        },
+    ]
+
+    const depositSchemes: DashboardStat[] = [
+        {
+            key: "recurring_deposit",
+            title: "Recurring Deposit",
+            value: Number(data?.deposit_schemes?.recurring_deposit?.amount ?? 0),
+            subtitle: "Scheme active total",
+            icon: BadgeIndianRupee,
+        },
+        {
+            key: "lakhpati_3y",
+            title: "Lakhpati Yojna (3Y)",
+            value: Number(data?.deposit_schemes?.lakhpati_yojna_3y?.amount ?? 0),
+            subtitle: "Scheme active total",
+            icon: Star,
+        },
+        {
+            key: "lakhpati_5y",
+            title: "Lakhpati Yojna (5Y)",
+            value: Number(data?.deposit_schemes?.lakhpati_yojna_5y?.amount ?? 0),
+            subtitle: "Scheme active total",
+            icon: PiggyBank,
+        },
+        {
+            key: "term_deposit_1_3",
+            title: "Term Deposit (1–3Y)",
+            value: Number(data?.deposit_schemes?.term_deposit_1_3y?.amount ?? 0),
+            subtitle: "Scheme active total",
+            icon: CalendarDays,
+        },
+        {
+            key: "term_deposit_5_10",
+            title: "Term Deposit (5–10Y)",
+            value: Number(data?.deposit_schemes?.term_deposit_5_10y?.amount ?? 0),
+            subtitle: "Scheme active total",
+            icon: CalendarDays,
+        },
+        {
+            key: "damduppat",
+            title: "Damduppat",
+            value: Number(data?.deposit_schemes?.damduppat?.amount ?? 0),
+            subtitle: "Scheme active total",
+            icon: HandCoins,
+        },
+        {
+            key: "fixed_deposit",
+            title: "Fixed Deposit",
+            value: Number(data?.deposit_schemes?.fixed_deposit?.amount ?? 0),
+            subtitle: "Scheme active total",
+            icon: LockKeyhole,
+        },
+        {
+            key: "total_deposit_schemes",
+            title: "Total Deposits (Schemes)",
+            value: Number(data?.deposit_schemes?.total_deposits_schemes?.amount ?? 0),
+            subtitle: "Sum of scheme KPIs",
+            icon: TrendingUp,
+        },
+    ]
 
     return (
         <div className="min-h-screen">
@@ -246,8 +243,6 @@ export default function AdminDashboard() {
                         <KpiCard key={item.key} item={item} />
                     ))}
                 </div>
-
-
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                     {depositSchemes.map((item) => (

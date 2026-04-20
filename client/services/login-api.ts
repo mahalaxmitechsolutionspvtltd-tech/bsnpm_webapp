@@ -4,6 +4,8 @@ import axios from "axios";
 
 const URI = process.env.NEXT_PUBLIC_API_BASE_URL
 
+
+
 const adminLoginApi = async ({ adminId, password }: AdminLoginType) => {
   const payload = {
     adminId, password

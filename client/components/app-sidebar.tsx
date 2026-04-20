@@ -12,7 +12,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { GalleryVerticalEndIcon, BookOpenIcon, LayoutDashboard, Users, BanknoteArrowUp, ScrollText, ClockFading, Wallet, HandCoins, Download, Images, ChartNoAxesCombined, TimerReset, Blocks, NotebookPen, Workflow, ReceiptIndianRupee } from "lucide-react"
+import { GalleryVerticalEndIcon, BookOpenIcon, LayoutDashboard, Users, BanknoteArrowUp, ScrollText, ClockFading, Wallet, HandCoins, Images, ChartNoAxesCombined, TimerReset, Blocks, NotebookPen, Workflow, ReceiptIndianRupee, Upload } from "lucide-react"
 import { AuditReports } from "./nav-auditReport"
 import { SystemNav } from "./nav-system"
 
@@ -156,7 +156,7 @@ const data = {
       ),
     },
     {
-      name: "Income & Expenses",
+      name: "Balance Sheet",
       url: "#",
       icon: (
         <ReceiptIndianRupee
@@ -185,11 +185,7 @@ const data = {
         },
         {
           title: "Meeting Minutes",
-          url: "/admin/dashboard/communications/meeting-minutes",
-        },
-        {
-          title: "Sms Alerts",
-          url: "/admin/dashboard/communications/sms-alerts"
+          url: "/admin/dashboard/communications/minutes-of-meeting",
         },
         {
           title: "Complains",
@@ -203,10 +199,10 @@ const data = {
       ],
     },
     {
-      name: "Downloads",
-      url: "#",
+      name: "Uploads",
+      url: "/admin/dashboard/uploads",
       icon: (
-        <Download
+        <Upload
         />
       ),
     },
@@ -236,7 +232,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader>
+      <SidebarHeader className="border-b ">
         <SidebarProfileHeader teams={data.teams} />
       </SidebarHeader>
 

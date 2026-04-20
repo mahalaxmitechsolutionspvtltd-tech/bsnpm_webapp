@@ -2,6 +2,8 @@
 
 
 use App\Http\Controllers\DepositWithdrawalController;
+use App\Http\Controllers\DashboardOverviewController;
+use App\Http\Controllers\AgmEgmNoticeController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DataEntryController;
 use App\Http\Controllers\DepositeController;
@@ -15,6 +17,15 @@ use App\Http\Controllers\PaymentsHistoryController;
 use App\Http\Controllers\TrialBalanceController;
 use App\Http\Middleware\AdminAuthMiddleware;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\HelpController;
+// comiants
+use App\Http\Controllers\ComplaintController;
+
+use App\Http\Controllers\DownloadController;
+
+// MinutesOfMeeting
+
+use App\Http\Controllers\MinutesOfMeetingController;
 
 Route::post('v1/admin/register', [AuthController::class, 'registerAdmin']);
 Route::post('v1/admin/login', [AuthController::class, 'adminLogin']);
@@ -22,7 +33,8 @@ Route::post('v1/sanchalaka/login', [AuthController::class, 'sanchalakaLogin']);
 
 Route::middleware([AdminAuthMiddleware::class])->group(function () {
 
-
+    Route::get('v1/dashboard/overview', [DashboardOverviewController::class, 'index']);
+      
     Route::get('v1/member-investment-portfolio', [MemberInvestmentPortfolioController::class, 'getInvestments']);
     Route::get('v1/members', [MemberController::class, 'getMembers']);
     Route::get('v1/me', [AuthController::class, 'me']);
@@ -117,5 +129,43 @@ Route::middleware([AdminAuthMiddleware::class])->group(function () {
     Route::put('v1/notices/{id}', [NoticeController::class, 'updateNotice']);
     Route::delete('v1/notices/{id}', [NoticeController::class, 'deleteNotice']);
 
+
+    // AGM-EGM 
+
+    Route::get('v1/agm-egm-notices', [AgmEgmNoticeController::class, 'index']);
+    Route::get('v1/agm-egm-notices/{id}', [AgmEgmNoticeController::class, 'show']);
+    Route::post('v1/agm-egm-notices', [AgmEgmNoticeController::class, 'store']);
+    Route::post('v1/agm-egm-notices/{id}', [AgmEgmNoticeController::class, 'update']);
+    Route::patch('v1/agm-egm-notices/{id}/publish', [AgmEgmNoticeController::class, 'publish']);
+    Route::delete('v1/agm-egm-notices/{id}', [AgmEgmNoticeController::class, 'destroy']);
+   
+    //Complaint
+
+    Route::get('v1/complaints', [ComplaintController::class, 'getComplaints']);
+    Route::get('v1/complaints/{id}', [ComplaintController::class, 'show']);
+    Route::patch('v1/complaints/{id}/reply', [ComplaintController::class, 'reply']);
+    Route::delete('v1/complaints/{id}', [ComplaintController::class, 'destroy']);
+     
+
+    Route::get('v1/mom/get', [MinutesOfMeetingController::class, 'getAllMom']);
+    Route::post('v1/mom/add', [MinutesOfMeetingController::class, 'addMom']);
+    Route::post('v1/mom/update/{id}', [MinutesOfMeetingController::class, 'updateMom']);
+    Route::delete('v1/mom/delete/{id}', [MinutesOfMeetingController::class, 'deleteMom']);
+    Route::patch('v1/mom/publish/{id}', [MinutesOfMeetingController::class, 'publishMom']);
+
+
+    // HELP DESK
+
+    Route::get('v1/help/getAll', [HelpController::class, 'getAll']);
+    Route::get('v1/help/{id}', [HelpController::class, 'getById'])->whereNumber('id');
+    Route::post('v1/help/{id}/reply', [HelpController::class, 'reply'])->whereNumber('id');
+
+
+    // DOWNLOADS 
+
+    Route::get('v1/downloads/get-downloads', [DownloadController::class, 'getAllDownloads']);
+    Route::post('v1/downloads/add-downloads', [DownloadController::class, 'addDownload']);
+    Route::post('v1/downloads/update/{id}', [DownloadController::class, 'updateDownload']);
+    Route::delete('v1/downloads/delete/{id}', [DownloadController::class, 'deleteDownload']);
 
 });
