@@ -5,9 +5,11 @@ import { useQuery } from '@tanstack/react-query'
 import {
     ColumnDef,
     ColumnFiltersState,
+    PaginationState,
     flexRender,
     getCoreRowModel,
     getFilteredRowModel,
+    getPaginationRowModel,
     useReactTable,
 } from '@tanstack/react-table'
 import Filter from '@/components/ui/filter'
@@ -19,7 +21,16 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
-import { Download } from 'lucide-react'
+import {
+    ChevronDown,
+    ChevronLeft,
+    ChevronRight,
+    ChevronsLeft,
+    ChevronsRight,
+    Download,
+    FileText,
+    Sheet,
+} from 'lucide-react'
 import { GetMemberInvestmentPortfolioParams } from '@/types/InvestmentPortfolio'
 import { getMemberInvestmentPortfolioHandler } from '@/services/InvestmentPortfolioHandler'
 
@@ -108,6 +119,8 @@ const sortOrderOptions: Array<{ value: SortOrderKey; label: string }> = [
     { value: 'id_asc', label: 'ID A-Z' },
     { value: 'id_desc', label: 'ID Z-A' },
 ]
+
+const pageSizeOptions = ['10', '20', '50', '100']
 
 const formatCurrency = (value: number | string | null | undefined) => {
     const numberValue = typeof value === 'number' ? value : Number(value)
@@ -218,17 +231,33 @@ function getSchemeValue(member: SafeMember, scheme: SchemeFilterKey) {
     return getMemberTotalValue(member)
 }
 
+const getNumericColumnClassName = (columnId: string) => {
+    if (columnId === 'rd' || columnId === 'fd' || columnId === 'td' || columnId === 'ly' || columnId === 'dd') {
+        return 'min-w-18 w-auto'
+    }
+
+    if (columnId === 'share' || columnId === 'emergency') {
+        return 'min-w-24 w-auto'
+    }
+
+    if (columnId === 'loan_amt' || columnId === 'loan_out' || columnId === 'kayam_thev' || columnId === 'total_value') {
+        return 'min-w-28 w-auto'
+    }
+
+    return 'w-auto'
+}
+
 const SkeletonRow = () => {
     return (
         <tr className='border-b last:border-b-0'>
-            <td className='px-3 py-2.5'>
+            <td className='min-w-64 px-3 py-2.5'>
                 <div className='space-y-1.5'>
                     <div className='h-3.5 w-32 animate-pulse rounded bg-muted' />
                     <div className='h-3 w-20 animate-pulse rounded bg-muted' />
                 </div>
             </td>
             {Array.from({ length: 11 }).map((_, index) => (
-                <td key={index} className='px-3 py-2.5 text-center'>
+                <td key={index} className='min-w-18 px-3 py-2.5 text-center'>
                     <div className='mx-auto h-3.5 w-14 animate-pulse rounded bg-muted' />
                 </td>
             ))}
@@ -248,6 +277,12 @@ const InvestmentPortfolioTable = ({
     )
     const [selectedScheme, setSelectedScheme] = React.useState<SchemeFilterKey>('all')
     const [sortOrder, setSortOrder] = React.useState<SortOrderKey>('high_to_low')
+    const [exportMenuOpen, setExportMenuOpen] = React.useState(false)
+    const exportMenuRef = React.useRef<HTMLDivElement | null>(null)
+    const [pagination, setPagination] = React.useState<PaginationState>({
+        pageIndex: 0,
+        pageSize: 10,
+    })
 
     React.useEffect(() => {
         const nextValue = search.trim()
@@ -269,6 +304,31 @@ const InvestmentPortfolioTable = ({
         })
     }, [search])
 
+    React.useEffect(() => {
+        setPagination((prev) => ({
+            ...prev,
+            pageIndex: 0,
+        }))
+    }, [selectedScheme, sortOrder, columnFilters])
+
+    React.useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (
+                exportMenuRef.current &&
+                event.target instanceof Node &&
+                !exportMenuRef.current.contains(event.target)
+            ) {
+                setExportMenuOpen(false)
+            }
+        }
+
+        document.addEventListener('mousedown', handleClickOutside)
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [])
+
     const queryParams: GetMemberInvestmentPortfolioParams = React.useMemo(
         () => ({
             ...(search.trim() ? { search: search.trim() } : {})
@@ -276,7 +336,7 @@ const InvestmentPortfolioTable = ({
         [search]
     )
 
-    const { data, isLoading, isFetching, isError, error } = useQuery({
+    const { data, isLoading, isError, error } = useQuery({
         queryKey: ['member-investment-portfolio', queryParams],
         queryFn: () => getMemberInvestmentPortfolioHandler(queryParams)
     })
@@ -341,16 +401,14 @@ const InvestmentPortfolioTable = ({
                 accessorKey: 'member_name',
                 header: () => 'Member',
                 cell: ({ row }) => (
-                    <div className='flex min-w-45 flex-col'>
+                    <div className='flex min-w-64 flex-col'>
                         <span className='text-[14px] font-semibold leading-5 text-foreground'>
                             {row.original.member_name || '-'}
                         </span>
                         <span className='text-[11px] text-muted-foreground'>
                             {row.original.member_id || '-'}
                         </span>
-                        <span className='text-[11px] text-muted-foreground'>
-                            {row.original.member_email || '-'}
-                        </span>
+                       
                     </div>
                 ),
             },
@@ -458,20 +516,47 @@ const InvestmentPortfolioTable = ({
         []
     )
 
+    // eslint-disable-next-line react-hooks/incompatible-library
     const table = useReactTable({
         data: filteredSortedMembers,
         columns,
         state: {
             columnFilters,
+            pagination,
         },
         onColumnFiltersChange: setColumnFilters,
+        onPaginationChange: setPagination,
         getCoreRowModel: getCoreRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
+        getPaginationRowModel: getPaginationRowModel(),
     })
 
-    const handleExportExcel = React.useCallback(() => {
-        const rows = table.getRowModel().rows.map((row) => row.original)
+    const visibleRowsCount = table.getFilteredRowModel().rows.length
+    const currentRowsCount = table.getPaginationRowModel().rows.length
+    const pageCount = table.getPageCount()
+    const currentPage = table.getState().pagination.pageIndex + 1
+    const currentPageSize = table.getState().pagination.pageSize
+    const fromRow = visibleRowsCount === 0 ? 0 : table.getState().pagination.pageIndex * currentPageSize + 1
+    const toRow = visibleRowsCount === 0 ? 0 : fromRow + currentRowsCount - 1
 
+    const getExportRows = React.useCallback(() => {
+        return table.getFilteredRowModel().rows.map((row) => row.original)
+    }, [table])
+
+    const getSummaryRows = React.useCallback((rowsLength: number) => {
+        return [
+            ['Total Members', String(summary.total_members)],
+            ['Total Deposits', formatCurrencyForExport(summary.total_deposits)],
+            ['Total Loans', formatCurrencyForExport(summary.total_loans)],
+            ['Outstanding', formatCurrencyForExport(summary.outstanding)],
+            ['Kayam Thev', formatCurrencyForExport(summary.kayam_thev)],
+            ['Selected Scheme', schemeOptions.find((item) => item.value === selectedScheme)?.label ?? 'All Schemes'],
+            ['Sort Order', sortOrderOptions.find((item) => item.value === sortOrder)?.label ?? 'High to Low'],
+            ['Visible Rows', String(rowsLength)],
+        ]
+    }, [summary, selectedScheme, sortOrder])
+
+    const getDataTableHtml = React.useCallback((rows: SafeMember[]) => {
         const exportRows = rows.map((member) => [
             member.member_name || '-',
             member.member_id || '-',
@@ -489,36 +574,7 @@ const InvestmentPortfolioTable = ({
             formatCurrencyForExport(getMemberTotalValue(member)),
         ])
 
-        const summaryRows = [
-            ['Total Members', String(summary.total_members)],
-            ['Total Deposits', formatCurrencyForExport(summary.total_deposits)],
-            ['Total Loans', formatCurrencyForExport(summary.total_loans)],
-            ['Outstanding', formatCurrencyForExport(summary.outstanding)],
-            ['Kayam Thev', formatCurrencyForExport(summary.kayam_thev)],
-            ['Selected Scheme', schemeOptions.find((item) => item.value === selectedScheme)?.label ?? 'All Schemes'],
-            ['Sort Order', sortOrderOptions.find((item) => item.value === sortOrder)?.label ?? 'High to Low'],
-            ['Visible Rows', String(rows.length)],
-        ]
-
-        const summaryTableHtml = `
-            <table border="1">
-                <thead>
-                    <tr>
-                        <th colspan="2">Investment Portfolio Summary</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${summaryRows
-                .map(
-                    (row) =>
-                        `<tr><td>${escapeHtml(String(row[0]))}</td><td>${escapeHtml(String(row[1]))}</td></tr>`
-                )
-                .join('')}
-                </tbody>
-            </table>
-        `
-
-        const dataTableHtml = `
+        return `
             <table border="1">
                 <thead>
                     <tr>
@@ -548,6 +604,34 @@ const InvestmentPortfolioTable = ({
                 </tbody>
             </table>
         `
+    }, [])
+
+    const getSummaryTableHtml = React.useCallback((rowsLength: number) => {
+        const summaryRows = getSummaryRows(rowsLength)
+
+        return `
+            <table border="1">
+                <thead>
+                    <tr>
+                        <th colspan="2">Investment Portfolio Summary</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${summaryRows
+                .map(
+                    (row) =>
+                        `<tr><td>${escapeHtml(String(row[0]))}</td><td>${escapeHtml(String(row[1]))}</td></tr>`
+                )
+                .join('')}
+                </tbody>
+            </table>
+        `
+    }, [getSummaryRows])
+
+    const handleExportExcel = React.useCallback(() => {
+        const rows = getExportRows()
+        const summaryTableHtml = getSummaryTableHtml(rows.length)
+        const dataTableHtml = getDataTableHtml(rows)
 
         const workbookHtml = `
             <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
@@ -580,179 +664,343 @@ const InvestmentPortfolioTable = ({
         link.click()
         document.body.removeChild(link)
         URL.revokeObjectURL(url)
-    }, [table, summary, selectedScheme, sortOrder])
+        setExportMenuOpen(false)
+    }, [getExportRows, getSummaryTableHtml, getDataTableHtml, selectedScheme, sortOrder])
+
+    const handleExportPdf = React.useCallback(() => {
+        const rows = getExportRows()
+        const summaryTableHtml = getSummaryTableHtml(rows.length)
+        const dataTableHtml = getDataTableHtml(rows)
+
+        const printHtml = `
+            <!doctype html>
+            <html>
+                <head>
+                    <meta charset="UTF-8" />
+                    <title>Investment Portfolio</title>
+                    <style>
+                        @page { size: landscape; margin: 12mm; }
+                        body { font-family: Arial, sans-serif; color: #111827; }
+                        h1 { margin: 0 0 6px 0; font-size: 18px; }
+                        p { margin: 0 0 14px 0; font-size: 11px; color: #4b5563; }
+                        table { border-collapse: collapse; width: 100%; margin-bottom: 18px; }
+                        th, td { border: 1px solid #d1d5db; padding: 6px; font-size: 10px; text-align: left; }
+                        th { background: #f3f4f6; font-weight: 700; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Investment Portfolio</h1>
+                    <p>Selected Scheme: ${escapeHtml(schemeOptions.find((item) => item.value === selectedScheme)?.label ?? 'All Schemes')} | Sort Order: ${escapeHtml(sortOrderOptions.find((item) => item.value === sortOrder)?.label ?? 'High to Low')}</p>
+                    ${summaryTableHtml}
+                    ${dataTableHtml}
+                    <script>
+                        window.onload = function () {
+                            window.focus();
+                            window.print();
+                        };
+                    </script>
+                </body>
+            </html>
+        `
+
+        const printWindow = window.open('', '_blank', 'width=1200,height=800')
+        if (!printWindow) {
+            setExportMenuOpen(false)
+            return
+        }
+
+        printWindow.document.open()
+        printWindow.document.write(printHtml)
+        printWindow.document.close()
+        setExportMenuOpen(false)
+    }, [getExportRows, getSummaryTableHtml, getDataTableHtml, selectedScheme, sortOrder])
 
     return (
-        <div className={`w-full space-y-3 ${className}`}>
-            <div className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4'>
-                <div className='rounded-xl border bg-background p-3'>
-                    <div className='text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground'>
-                        Total Members
-                    </div>
-                    <div className='mt-1.5 text-xl font-bold text-foreground'>
-                        {summary.total_members}
-                    </div>
-                </div>
+        <>
+            <style jsx global>{`
+                .investment-portfolio-table-scroll {
+                    scrollbar-width: none;
+                    -ms-overflow-style: none;
+                }
 
-                <div className='rounded-xl border bg-background p-3'>
-                    <div className='text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground'>
-                        Total Deposits
-                    </div>
-                    <div className='mt-1.5 text-xl font-bold text-foreground'>
-                        {formatCurrency(summary.total_deposits)}
-                    </div>
-                </div>
+                .investment-portfolio-table-scroll::-webkit-scrollbar {
+                    width: 0;
+                    height: 0;
+                    display: none;
+                }
+            `}</style>
 
-                <div className='rounded-xl border bg-background p-3'>
-                    <div className='text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground'>
-                        Total Loans
-                    </div>
-                    <div className='mt-1.5 text-xl font-bold text-foreground'>
-                        {formatCurrency(summary.total_loans)}
-                    </div>
-                </div>
-
-                <div className='rounded-xl border bg-background p-3'>
-                    <div className='text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground'>
-                        Outstanding
-                    </div>
-                    <div className='mt-1.5 text-xl font-bold text-foreground'>
-                        {formatCurrency(summary.outstanding)}
-                    </div>
-                </div>
-            </div>
-
-            <div className='rounded-xl border bg-background p-3'>
-                <div className='flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between'>
-                    <div className='flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:items-end'>
-                        <div className='min-w-0 flex-1 md:max-w-[320px]'>
-                            <label className='mb-1.5 block text-[11px] font-semibold text-muted-foreground'>
-                                Search
-                            </label>
-                            <Filter column={table.getColumn('member_search')!} />
+            <div className={`w-full space-y-3 ${className}`}>
+                <div className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4'>
+                    <div className='rounded-xl border bg-background p-3'>
+                        <div className='text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground'>
+                            Total Members
                         </div>
-
-                        <div className='w-full md:w-47.5 shrink-0'>
-                            <label className='mb-1.5 block text-[11px] font-semibold text-muted-foreground'>
-                                Scheme Filter
-                            </label>
-                            <Select value={selectedScheme} onValueChange={(value) => setSelectedScheme(value as SchemeFilterKey)}>
-                                <SelectTrigger className='h-10 w-full rounded-xl'>
-                                    <SelectValue placeholder='Select scheme' />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {schemeOptions.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>
-                                            {option.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className='w-full md:w-47.5 shrink-0'>
-                            <label className='mb-1.5 block text-[11px] font-semibold text-muted-foreground'>
-                                Sort Order
-                            </label>
-                            <Select value={sortOrder} onValueChange={(value) => setSortOrder(value as SortOrderKey)}>
-                                <SelectTrigger className='h-10 w-full rounded-xl'>
-                                    <SelectValue placeholder='Sort by' />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {sortOrderOptions.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>
-                                            {option.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                        <div className='mt-1.5 text-xl font-bold text-foreground'>
+                            {summary.total_members}
                         </div>
                     </div>
 
-                    <div className='flex w-full items-end justify-between gap-3 xl:w-auto xl:justify-end'>
+                    <div className='rounded-xl border bg-background p-3'>
+                        <div className='text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground'>
+                            Total Deposits
+                        </div>
+                        <div className='mt-1.5 text-xl font-bold text-foreground'>
+                            {formatCurrency(summary.total_deposits)}
+                        </div>
+                    </div>
 
+                    <div className='rounded-xl border bg-background p-3'>
+                        <div className='text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground'>
+                            Total Loans
+                        </div>
+                        <div className='mt-1.5 text-xl font-bold text-foreground'>
+                            {formatCurrency(summary.total_loans)}
+                        </div>
+                    </div>
 
-                        <div className='w-full max-w-45 xl:w-45 shrink-0'>
-                           
-                            <Button
-                                type='button'
-                                onClick={handleExportExcel}
-                                className='h-10 w-full rounded-xl'
-                                disabled={isLoading || table.getRowModel().rows.length === 0}
-                            >
-                                <Download className='mr-2 h-4 w-4' />
-                                Export Excel
-                            </Button>
+                    <div className='rounded-xl border bg-background p-3'>
+                        <div className='text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground'>
+                            Outstanding
+                        </div>
+                        <div className='mt-1.5 text-xl font-bold text-foreground'>
+                            {formatCurrency(summary.outstanding)}
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div className='w-full overflow-hidden rounded-xl border bg-background'>
-                <div className='w-full overflow-x-auto'>
-                    <table className='w-full min-w-375 border-collapse'>
-                        <thead>
-                            {table.getHeaderGroups().map((headerGroup) => (
-                                <tr key={headerGroup.id} className='border-b bg-muted/40'>
-                                    {headerGroup.headers
-                                        .filter((header) => header.column.id !== 'member_search')
-                                        .map((header) => (
-                                            <th
-                                                key={header.id}
-                                                className={`px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground ${header.column.id === 'member_name' ? 'text-left' : 'text-center'}`}
-                                            >
-                                                {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                                            </th>
+                <div className='rounded-xl border bg-background p-3'>
+                    <div className='flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between'>
+                        <div className='flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:items-end'>
+                            <div className='min-w-0 flex-1 md:max-w-[320px]'>
+                                <label className='mb-1.5 block text-[11px] font-semibold text-muted-foreground'>
+                                    Search
+                                </label>
+                                <Filter column={table.getColumn('member_search')!} />
+                            </div>
+
+                            <div className='w-full md:w-47.5 shrink-0'>
+                                <label className='mb-1.5 block text-[11px] font-semibold text-muted-foreground'>
+                                    Scheme Filter
+                                </label>
+                                <Select value={selectedScheme} onValueChange={(value) => setSelectedScheme(value as SchemeFilterKey)}>
+                                    <SelectTrigger className='h-10 w-full rounded-xl'>
+                                        <SelectValue placeholder='Select scheme' />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {schemeOptions.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
                                         ))}
-                                </tr>
-                            ))}
-                        </thead>
+                                    </SelectContent>
+                                </Select>
+                            </div>
 
-                        <tbody>
-                            {isLoading ? (
-                                Array.from({ length: 4 }).map((_, index) => <SkeletonRow key={index} />)
-                            ) : isError ? (
-                                <tr>
-                                    <td
-                                        colSpan={12}
-                                        className='px-4 py-8 text-center text-sm text-red-600'
-                                    >
-                                        {error instanceof Error ? error.message : 'Failed to load portfolio data.'}
-                                    </td>
-                                </tr>
-                            ) : table.getRowModel().rows.length > 0 ? (
-                                table.getRowModel().rows.map((row) => (
-                                    <tr
-                                        key={row.id}
-                                        className='border-b transition-colors last:border-b-0 hover:bg-muted/20'
-                                    >
-                                        {row.getVisibleCells()
-                                            .filter((cell) => cell.column.id !== 'member_search')
-                                            .map((cell) => (
-                                                <td
-                                                    key={cell.id}
-                                                    className={`px-3 py-2.5 align-middle ${cell.column.id === 'member_name' ? 'text-left' : 'text-center'}`}
+                            <div className='w-full md:w-47.5 shrink-0'>
+                                <label className='mb-1.5 block text-[11px] font-semibold text-muted-foreground'>
+                                    Sort Order
+                                </label>
+                                <Select value={sortOrder} onValueChange={(value) => setSortOrder(value as SortOrderKey)}>
+                                    <SelectTrigger className='h-10 w-full rounded-xl'>
+                                        <SelectValue placeholder='Sort by' />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {sortOrderOptions.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+
+                        <div ref={exportMenuRef} className='relative flex w-full items-end justify-between gap-3 xl:w-auto xl:justify-end'>
+                            <div className='w-full max-w-45 xl:w-45 shrink-0'>
+                                <Button
+                                    type='button'
+                                    onClick={() => setExportMenuOpen((open) => !open)}
+                                    className='h-10 w-full rounded-xl'
+                                    disabled={isLoading || table.getFilteredRowModel().rows.length === 0}
+                                >
+                                    <Download className='mr-2 h-4 w-4' />
+                                    Export
+                                    <ChevronDown className='ml-2 h-4 w-4' />
+                                </Button>
+
+                                {exportMenuOpen ? (
+                                    <div className='absolute right-0 top-[calc(100%+8px)] z-50 w-48 overflow-hidden rounded-xl border bg-popover p-1 shadow-xl'>
+                                        <button
+                                            type='button'
+                                            onClick={handleExportPdf}
+                                            className='flex w-full items-center rounded-lg px-3 py-2 text-left text-sm font-medium text-popover-foreground hover:bg-muted'
+                                        >
+                                            <FileText className='mr-2 h-4 w-4' />
+                                            Export PDF
+                                        </button>
+                                        <button
+                                            type='button'
+                                            onClick={handleExportExcel}
+                                            className='flex w-full items-center rounded-lg px-3 py-2 text-left text-sm font-medium text-popover-foreground hover:bg-muted'
+                                        >
+                                            <Sheet className='mr-2 h-4 w-4' />
+                                            Export Excel
+                                        </button>
+                                    </div>
+                                ) : null}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className='w-full overflow-hidden rounded-xl border bg-background'>
+                    <div className='investment-portfolio-table-scroll relative min-h-87.5 max-h-140 w-full overflow-auto'>
+                        <table className='w-max min-w-full border-separate border-spacing-0'>
+                            <thead className='z-20'>
+                                {table.getHeaderGroups().map((headerGroup) => (
+                                    <tr key={headerGroup.id}>
+                                        {headerGroup.headers
+                                            .filter((header) => header.column.id !== 'member_search')
+                                            .map((header) => (
+                                                <th
+                                                    key={header.id}
+                                                    className={`sticky top-0 z-20 border-b bg-background px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground  whitespace-nowrap ${header.column.id === 'member_name' ? 'min-w-64 text-left' : `${getNumericColumnClassName(header.column.id)} text-center`}`}
                                                 >
-                                                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                                </td>
+                                                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                                                </th>
                                             ))}
                                     </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td
-                                        colSpan={12}
-                                        className='px-4 py-8 text-center text-sm text-muted-foreground'
+                                ))}
+                            </thead>
+
+                            <tbody>
+                                {isLoading ? (
+                                    Array.from({ length: 4 }).map((_, index) => <SkeletonRow key={index} />)
+                                ) : isError ? (
+                                    <tr>
+                                        <td
+                                            colSpan={12}
+                                            className='px-4 py-8 text-center text-sm text-red-600'
+                                        >
+                                            {error instanceof Error ? error.message : 'Failed to load portfolio data.'}
+                                        </td>
+                                    </tr>
+                                ) : table.getPaginationRowModel().rows.length > 0 ? (
+                                    table.getPaginationRowModel().rows.map((row) => (
+                                        <tr
+                                            key={row.id}
+                                            className='transition-colors hover:bg-muted/20'
+                                        >
+                                            {row.getVisibleCells()
+                                                .filter((cell) => cell.column.id !== 'member_search')
+                                                .map((cell) => (
+                                                    <td
+                                                        key={cell.id}
+                                                        className={`border-b bg-background px-3 py-2.5 align-middle whitespace-nowrap ${cell.column.id === 'member_name' ? 'min-w-64 text-left' : `${getNumericColumnClassName(cell.column.id)} text-center`}`}
+                                                    >
+                                                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                                    </td>
+                                                ))}
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td
+                                            colSpan={12}
+                                            className='border-b bg-background px-4 py-8 text-center text-sm text-muted-foreground'
+                                        >
+                                            {emptyMessage}
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className='flex flex-col gap-3 border-t bg-background px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
+                        <div className='text-xs text-muted-foreground'>
+                            Showing {fromRow} to {toRow} of {visibleRowsCount} entries
+                        </div>
+
+                        <div className='flex flex-col gap-3 sm:flex-row sm:items-center'>
+                            <div className='flex items-center gap-2'>
+                                <span className='text-xs font-medium text-muted-foreground'>
+                                    Rows
+                                </span>
+                                <Select
+                                    value={String(currentPageSize)}
+                                    onValueChange={(value) => table.setPageSize(Number(value))}
+                                >
+                                    <SelectTrigger className='h-8 w-20 rounded-lg text-xs'>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {pageSizeOptions.map((size) => (
+                                            <SelectItem key={size} value={size}>
+                                                {size}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className='flex items-center gap-2'>
+                                <span className='text-xs font-medium text-muted-foreground'>
+                                    Page {pageCount === 0 ? 0 : currentPage} of {pageCount}
+                                </span>
+
+                                <div className='flex items-center gap-1'>
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='icon'
+                                        className='h-8 w-8 rounded-lg'
+                                        onClick={() => table.setPageIndex(0)}
+                                        disabled={!table.getCanPreviousPage()}
                                     >
-                                        {emptyMessage}
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+                                        <ChevronsLeft className='h-4 w-4' />
+                                    </Button>
+
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='icon'
+                                        className='h-8 w-8 rounded-lg'
+                                        onClick={() => table.previousPage()}
+                                        disabled={!table.getCanPreviousPage()}
+                                    >
+                                        <ChevronLeft className='h-4 w-4' />
+                                    </Button>
+
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='icon'
+                                        className='h-8 w-8 rounded-lg'
+                                        onClick={() => table.nextPage()}
+                                        disabled={!table.getCanNextPage()}
+                                    >
+                                        <ChevronRight className='h-4 w-4' />
+                                    </Button>
+
+                                    <Button
+                                        type='button'
+                                        variant='outline'
+                                        size='icon'
+                                        className='h-8 w-8 rounded-lg'
+                                        onClick={() => table.setPageIndex(pageCount - 1)}
+                                        disabled={!table.getCanNextPage()}
+                                    >
+                                        <ChevronsRight className='h-4 w-4' />
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
+        </>
     )
 }
 

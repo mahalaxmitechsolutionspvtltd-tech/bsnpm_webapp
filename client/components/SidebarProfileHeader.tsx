@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 "use client"
 
 import * as React from "react"
@@ -6,8 +7,8 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from "@/components/ui/sidebar"
+
 
 
 export function SidebarProfileHeader({
@@ -15,25 +16,32 @@ export function SidebarProfileHeader({
 }: {
   teams: {
     name: string
-    logo: React.ReactNode
+    logo:string
     plan: string
   }[]
 }) {
 
-  const [activeTeam, setActiveTeam] = React.useState(teams[0])
-
+  const activeTeam =teams[0]; 
   if (!activeTeam) {
     return null
   }
 
   return (
-    <SidebarMenu > 
+    <SidebarMenu >
       <SidebarMenuItem>
         <SidebarMenuButton
           size="lg"
           className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
         >
-          
+         <div>
+           <img
+              alt="logo"
+              src="/bsnpm.png"
+              width={20}
+              height={20}
+              className="size-5 object-contain"
+            />
+         </div>
           <div className="grid flex-1 text-left text-sm leading-tight">
             <span className="truncate  font-bold text-xl">{activeTeam.name}</span>
             <span className="truncate text-xs">{activeTeam.plan}</span>

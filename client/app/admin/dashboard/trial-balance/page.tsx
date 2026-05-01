@@ -102,6 +102,11 @@ function normalizeTitle(value: string) {
     return value.toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
+function safeNumber(value: unknown) {
+    const numberValue = Number(value)
+    return Number.isFinite(numberValue) ? numberValue : 0
+}
+
 function getRowType(title: string, type?: string | null): TrialBalanceRow['rowType'] {
     const normalizedType = normalizeTitle(String(type ?? ''))
     const normalizedTitle = normalizeTitle(title)
@@ -120,6 +125,51 @@ function getRowType(title: string, type?: string | null): TrialBalanceRow['rowTy
     if (normalizedType === 'total' || normalizedTitle === 'total') return 'total'
 
     return 'normal'
+}
+
+function isOutgoingParticular(title: string) {
+    const normalized = normalizeTitle(title)
+
+    return (
+        normalized.includes('expense') ||
+        normalized.includes('withdrawal') ||
+        normalized.includes('withdraw') ||
+        normalized.includes('refund') ||
+        normalized.includes('paid out') ||
+        normalized.includes('payment out') ||
+        normalized.includes('loan disbursement') ||
+        normalized.includes('loan given') ||
+        normalized.includes('cash paid') ||
+        normalized.includes('bank paid') ||
+        normalized.includes('salary') ||
+        normalized.includes('rent') ||
+        normalized.includes('electricity') ||
+        normalized.includes('office expense') ||
+        normalized.includes('maintenance expense')
+    )
+}
+
+function normalizeBankingRow(row: TrialBalanceRow): TrialBalanceRow {
+    if (
+        row.rowType === 'debit_total' ||
+        row.rowType === 'credit_total' ||
+        row.rowType === 'difference' ||
+        row.rowType === 'total'
+    ) {
+        return row
+    }
+
+    if (row.credit > 0 && row.debit === 0 && !isOutgoingParticular(row.particulars)) {
+        return {
+            ...row,
+            debit: row.credit,
+            credit: 0,
+            value: row.credit,
+            rowType: row.rowType === 'credit' ? 'debit' : row.rowType,
+        }
+    }
+
+    return row
 }
 
 function extractTrialBalancePayload(response: unknown): TrialBalanceApiData {
@@ -143,55 +193,50 @@ function mapSummaryToRows(data: TrialBalanceApiData | undefined): TrialBalanceRo
         return summary.map((item, index) => {
             const title = String(item?.title ?? '').trim() || `Row ${index + 1}`
             const rowType = getRowType(title, item?.type ?? null)
-            const debit = Number(item?.debit ?? 0)
-            const credit = Number(item?.credit ?? 0)
-            const value = Number(item?.value ?? (credit > 0 ? credit : debit))
+            const debit = safeNumber(item?.debit ?? 0)
+            const credit = safeNumber(item?.credit ?? 0)
+            const value = safeNumber(item?.value ?? (debit > 0 ? debit : credit))
 
-            return {
+            return normalizeBankingRow({
                 id: index + 1,
                 particulars: title,
-                debit: Number.isFinite(debit) ? debit : 0,
-                credit: Number.isFinite(credit) ? credit : 0,
-                value: Number.isFinite(value) ? value : 0,
+                debit,
+                credit,
+                value,
                 rowType,
-            }
+            })
         })
     }
 
     const fallbackSummary: TrialBalanceSummaryItem[] = [
-        { title: 'Opening Balance', debit: 0, credit: Number(data?.opening_balance ?? 0), type: 'opening_balance' },
-        { title: 'Cash in Hand', debit: 0, credit: Number(data?.cash_in_hand ?? 0), type: 'cash_in_hand' },
-        { title: 'Bank Balance', debit: 0, credit: Number(data?.bank_balance ?? 0), type: 'bank_balance' },
-        { title: 'Closing Balance', debit: 0, credit: Number(data?.closing_balance ?? 0), type: 'closing_balance' },
-        { title: 'Principal Amount Total', debit: 0, credit: Number(data?.principal_amount_total ?? 0), type: 'principal_total' },
-        { title: 'Loan Interest', debit: 0, credit: Number(data?.interest_amount_total ?? 0), type: 'interest_total' },
+        { title: 'Opening Balance', debit: Number(data?.opening_balance ?? 0), credit: 0, type: 'opening_balance' },
+        { title: 'Cash in Hand', debit: Number(data?.cash_in_hand ?? 0), credit: 0, type: 'cash_in_hand' },
+        { title: 'Bank Balance', debit: Number(data?.bank_balance ?? 0), credit: 0, type: 'bank_balance' },
+        { title: 'Closing Balance', debit: Number(data?.closing_balance ?? 0), credit: 0, type: 'closing_balance' },
+        { title: 'Principal Amount Total', debit: Number(data?.principal_amount_total ?? 0), credit: 0, type: 'principal_total' },
+        { title: 'Loan Interest', debit: Number(data?.interest_amount_total ?? 0), credit: 0, type: 'interest_total' },
         { title: 'Debit Total', debit: Number(data?.debit_total ?? 0), credit: 0, type: 'debit_total' },
         { title: 'Credit Total', debit: 0, credit: Number(data?.credit_total ?? 0), type: 'credit_total' },
-        { title: 'Difference', debit: 0, credit: Number(data?.difference ?? 0), type: 'difference' },
+        { title: 'Difference', debit: Number(data?.difference ?? 0), credit: 0, type: 'difference' },
         { title: 'Total', debit: Number(data?.debit_total ?? 0), credit: Number(data?.credit_total ?? 0), type: 'total' },
     ]
 
     return fallbackSummary.map((item, index) => {
         const title = String(item.title ?? '').trim()
         const rowType = getRowType(title, item.type ?? null)
-        const debit = Number(item.debit ?? 0)
-        const credit = Number(item.credit ?? 0)
-        const value = Number(item.value ?? (credit > 0 ? credit : debit))
+        const debit = safeNumber(item.debit ?? 0)
+        const credit = safeNumber(item.credit ?? 0)
+        const value = safeNumber(item.value ?? (debit > 0 ? debit : credit))
 
-        return {
+        return normalizeBankingRow({
             id: index + 1,
             particulars: title,
             debit,
             credit,
             value,
             rowType,
-        }
+        })
     })
-}
-
-function getKpiValue(rows: TrialBalanceRow[], title: string, fallback = 0) {
-    const found = rows.find((row) => normalizeTitle(row.particulars) === normalizeTitle(title))
-    return Number(found?.value ?? fallback)
 }
 
 function getBottomSummaryRowClass(rowType: TrialBalanceRow['rowType']) {
@@ -253,15 +298,27 @@ function escapeHtml(value: string) {
         .replace(/'/g, '&#039;')
 }
 
+function getKpiTone(index: number) {
+    if (index === 0) return 'border-emerald-200 bg-emerald-50/60'
+    if (index === 1) return 'border-rose-200 bg-rose-50/60'
+    if (index === 2) return 'border-blue-200 bg-blue-50/60'
+    return 'border-amber-200 bg-amber-50/60'
+}
+
 function TrialBalanceSkeleton() {
     return (
-        <div className="w-full space-y-4 p-4 md:p-6">
+        <div className="w-full space-y-5 p-4 md:p-6">
+            <div>
+                <Skeleton className="h-8 w-56 rounded-lg" />
+                <Skeleton className="mt-2 h-4 w-80 rounded-lg" />
+            </div>
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {Array.from({ length: 4 }).map((_, index) => (
-                    <Card key={index} className="rounded-xl shadow-sm">
-                        <CardContent>
-                            <Skeleton className="h-6 w-32" />
-                            <Skeleton className="mt-3 h-8 w-40" />
+                    <Card key={index} className="rounded-xl border border-slate-200 shadow-sm">
+                        <CardContent className="p-5">
+                            <Skeleton className="h-5 w-32 rounded-lg" />
+                            <Skeleton className="mt-3 h-8 w-40 rounded-lg" />
                         </CardContent>
                     </Card>
                 ))}
@@ -269,37 +326,35 @@ function TrialBalanceSkeleton() {
 
             <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
                 <div className="flex w-full flex-col gap-2 sm:w-auto">
-                    <Skeleton className="h-4 w-28" />
-                    <Skeleton className="h-10 w-full min-w-55 md:w-65" />
+                    <Skeleton className="h-4 w-28 rounded-lg" />
+                    <Skeleton className="h-10 w-full min-w-55 rounded-xl md:w-65" />
                 </div>
 
-                <div className="my-auto">
-                    <Skeleton className="h-10 w-28 rounded-xl" />
-                </div>
+                <Skeleton className="h-10 w-28 rounded-xl" />
             </div>
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                 <div className="p-4">
                     <div className="grid grid-cols-3 gap-4 border-b border-slate-200 pb-4">
-                        <Skeleton className="h-5 w-28" />
-                        <Skeleton className="ml-auto h-5 w-20" />
-                        <Skeleton className="ml-auto h-5 w-20" />
+                        <Skeleton className="h-5 w-28 rounded-lg" />
+                        <Skeleton className="ml-auto h-5 w-20 rounded-lg" />
+                        <Skeleton className="ml-auto h-5 w-20 rounded-lg" />
                     </div>
 
                     <div className="space-y-4 py-4">
                         {Array.from({ length: 12 }).map((_, index) => (
-                            <div key={index} className="grid grid-cols-3 gap-4 items-center">
-                                <Skeleton className="h-5 w-64" />
-                                <Skeleton className="ml-auto h-5 w-24" />
-                                <Skeleton className="ml-auto h-5 w-24" />
+                            <div key={index} className="grid grid-cols-3 items-center gap-4">
+                                <Skeleton className="h-5 w-64 rounded-lg" />
+                                <Skeleton className="ml-auto h-5 w-24 rounded-lg" />
+                                <Skeleton className="ml-auto h-5 w-24 rounded-lg" />
                             </div>
                         ))}
                     </div>
 
                     <div className="grid grid-cols-3 gap-4 border-t border-slate-200 pt-4">
-                        <Skeleton className="h-5 w-20" />
-                        <Skeleton className="ml-auto h-5 w-24" />
-                        <Skeleton className="ml-auto h-5 w-24" />
+                        <Skeleton className="h-5 w-20 rounded-lg" />
+                        <Skeleton className="ml-auto h-5 w-24 rounded-lg" />
+                        <Skeleton className="ml-auto h-5 w-24 rounded-lg" />
                     </div>
                 </div>
             </div>
@@ -358,11 +413,28 @@ export default function Page() {
         [mainTableRows, specialBottomRows]
     )
 
+    const debitTotal = React.useMemo(
+        () => displayRows.reduce((total, row) => total + safeNumber(row.debit), 0),
+        [displayRows]
+    )
+
+    const creditTotal = React.useMemo(
+        () => displayRows.reduce((total, row) => total + safeNumber(row.credit), 0),
+        [displayRows]
+    )
+
+    const bankBalance = React.useMemo(
+        () => debitTotal - creditTotal,
+        [debitTotal, creditTotal]
+    )
+
+    const difference = bankBalance
+
     const columns = React.useMemo<ColumnDef<TrialBalanceRow>[]>(
         () => [
             {
                 accessorKey: 'particulars',
-                header: () => <span className="text-[13px] font-semibold">Particulars</span>,
+                header: () => <span className="text-[13px] font-semibold text-slate-700">Particulars</span>,
                 cell: ({ row }) => (
                     <div className="text-[13px] font-medium text-slate-800">
                         {row.original.particulars}
@@ -371,8 +443,8 @@ export default function Page() {
                 size: 900,
             },
             {
-                accessorKey: 'credit',
-                header: () => <div className="text-right text-[13px] font-semibold">Credit</div>,
+                accessorKey: 'debit',
+                header: () => <div className="text-right text-[13px] font-semibold text-slate-700">Debit</div>,
                 cell: ({ row }) => (
                     <div className="min-h-5 text-right text-[13px] font-medium text-slate-800">
                         {formatBodyCellValue(row.original.debit, row.original.rowType)}
@@ -381,8 +453,8 @@ export default function Page() {
                 size: 220,
             },
             {
-                accessorKey: 'debit',
-                header: () => <div className="text-right text-[13px] font-semibold">Debit</div>,
+                accessorKey: 'credit',
+                header: () => <div className="text-right text-[13px] font-semibold text-slate-700">Credit</div>,
                 cell: ({ row }) => (
                     <div className="min-h-5 text-right text-[13px] font-medium text-slate-800">
                         {formatBodyCellValue(row.original.credit, row.original.rowType)}
@@ -400,15 +472,10 @@ export default function Page() {
         getCoreRowModel: getCoreRowModel(),
     })
 
-    const debitTotal = getKpiValue(rows, 'Debit Total', Number(data?.debit_total ?? 0))
-    const creditTotal = getKpiValue(rows, 'Credit Total', Number(data?.credit_total ?? 0))
-    const bankBalance = getKpiValue(rows, 'Bank Balance', Number(data?.bank_balance ?? 0))
-    const difference = getKpiValue(rows, 'Difference', Number(data?.difference ?? 0))
+    const selectedFinancialYearLabel =
+        financialYearOptions.find((item) => item.value === selectedFinancialYear)?.label ?? selectedFinancialYear
 
     const handleExportExcel = React.useCallback(() => {
-        const selectedFinancialYearLabel =
-            financialYearOptions.find((item) => item.value === selectedFinancialYear)?.label ?? selectedFinancialYear
-
         const kpiRows = [
             ['Total Debit', formatCurrencyForExport(debitTotal)],
             ['Total Credit', formatCurrencyForExport(creditTotal)],
@@ -449,8 +516,8 @@ export default function Page() {
                 <thead>
                     <tr>
                         <th>Particulars</th>
-                        <th>Credit</th>
                         <th>Debit</th>
+                        <th>Credit</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -473,7 +540,7 @@ export default function Page() {
                     <style>
                         table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
                         th, td { border: 1px solid #d1d5db; padding: 8px; font-family: Arial, sans-serif; font-size: 12px; }
-                        th { font-weight: 700; }
+                        th { font-weight: 700; background: #f8fafc; }
                     </style>
                 </head>
                 <body>
@@ -495,7 +562,7 @@ export default function Page() {
         link.click()
         document.body.removeChild(link)
         URL.revokeObjectURL(url)
-    }, [bankBalance, creditTotal, debitTotal, difference, displayRows, financialYearOptions, selectedFinancialYear])
+    }, [bankBalance, creditTotal, debitTotal, difference, displayRows, selectedFinancialYear, selectedFinancialYearLabel])
 
     if (isLoading || isFetching) {
         return <TrialBalanceSkeleton />
@@ -504,68 +571,78 @@ export default function Page() {
     if (isError) {
         return (
             <div className="w-full p-4 md:p-6">
-                <div className="rounded-xl border border-red-200 bg-white p-4 text-sm font-medium text-red-600 shadow-sm">
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-600 shadow-sm">
                     {error instanceof Error ? error.message : 'Failed to load trial balance'}
                 </div>
             </div>
         )
     }
 
+    const kpiCards = [
+        {
+            label: 'Total Debit',
+            value: debitTotal,
+            helper: 'Money received in society or bank',
+        },
+        {
+            label: 'Total Credit',
+            value: creditTotal,
+            helper: 'Money paid from society or bank',
+        },
+        {
+            label: 'Bank Balance',
+            value: bankBalance,
+            helper: 'Debit minus credit balance',
+        },
+        {
+            label: 'Final Balance',
+            value: difference,
+            helper: 'Current calculated difference',
+        },
+    ]
+
     return (
-        <div className="w-full space-y-4 p-4 md:p-6">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <Card className="rounded-xl shadow-sm">
-                    <CardContent>
-                        <div className="text-lg font-bold capitalize text-slate-500">
-                            Total Credit
-                        </div>
-                        <div className="text-[22px] font-bold text-slate-900">
-                            {formatCurrency(debitTotal)}
-                        </div>
-                    </CardContent>
-                </Card>
+        <div className="w-full space-y-5 p-4 md:p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-950">
+                        Trial Balance
+                    </h1>
+                    <p className="mt-1 text-sm text-slate-500">
+                        View debit, credit, bank balance, and financial year summary.
+                    </p>
+                </div>
 
-                <Card className="rounded-xl shadow-sm">
-                    <CardContent>
-                        <div className="text-lg font-bold capitalize text-slate-500">
-                            Total Debit
-                        </div>
-                        <div className="text-[22px] font-bold text-slate-900">
-                            {formatCurrency(creditTotal)}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="rounded-xl shadow-sm">
-                    <CardContent>
-                        <div className="text-lg font-bold capitalize text-slate-500">
-                            Bank Balance
-                        </div>
-                        <div className="text-[22px] font-bold text-slate-900">
-                            {formatCurrency(bankBalance)}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="rounded-xl shadow-sm">
-                    <CardContent>
-                        <div className="text-lg font-bold capitalize text-slate-500">
-                            Final balance
-                        </div>
-                        <div className="text-[22px] font-bold text-slate-900">
-                            {formatCurrency(difference)}
-                        </div>
-                    </CardContent>
-                </Card>
+                <div className="flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 shadow-sm">
+                    FY {selectedFinancialYearLabel}
+                </div>
             </div>
 
-            <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
-                <div className="my-auto flex w-full flex-col gap-2 sm:w-auto">
-                    <div className="text-sm font-medium text-slate-600">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {kpiCards.map((card, index) => (
+                    <Card key={card.label} className={`rounded-xl border shadow-sm ${getKpiTone(index)}`}>
+                        <CardContent className="">
+                            <div className="text-sm font-bold uppercase tracking-[0.08em] text-slate-500">
+                                {card.label}
+                            </div>
+                            <div className="mt-2 text-[22px] font-bold text-slate-950">
+                                {formatCurrency(card.value)}
+                            </div>
+                            <div className="mt-1 text-xs font-medium text-slate-500">
+                                {card.helper}
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+
+            <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-end md:justify-between">
+                <div className="flex w-full flex-col gap-2 sm:w-auto">
+                    <div className="text-sm font-semibold text-slate-700">
                         Financial Year
                     </div>
                     <Select value={selectedFinancialYear} onValueChange={setSelectedFinancialYear}>
-                        <SelectTrigger className="w-full min-w-55 rounded-xl md:w-65">
+                        <SelectTrigger className="h-10 w-full min-w-55 rounded-xl border-slate-300 bg-white md:w-65">
                             <SelectValue placeholder="Select financial year" />
                         </SelectTrigger>
                         <SelectContent>
@@ -578,24 +655,31 @@ export default function Page() {
                     </Select>
                 </div>
 
-                <div className="my-auto">
-                    <Button type="button" className="mt-7 gap-2 rounded-xl" onClick={handleExportExcel}>
-                        <Download className="h-4 w-4" />
-                        Export
-                    </Button>
-                </div>
+                <Button type="button" className="h-10 gap-2 rounded-xl" onClick={handleExportExcel}>
+                    <Download className="h-4 w-4" />
+                    Export
+                </Button>
             </div>
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="text-sm font-bold text-slate-800">
+                        Trial Balance Summary
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                        Debit means money received. Credit means money paid.
+                    </div>
+                </div>
+
                 <Table>
                     <TableHeader>
                         {table.getHeaderGroups().map((headerGroup) => (
-                            <TableRow key={headerGroup.id}>
+                            <TableRow key={headerGroup.id} className="bg-white hover:bg-white">
                                 {headerGroup.headers.map((header) => (
                                     <TableHead
                                         key={header.id}
                                         style={{ width: header.getSize() }}
-                                        className={header.column.id === 'particulars' ? 'text-left' : 'text-right'}
+                                        className={header.column.id === 'particulars' ? 'h-11 border-b border-slate-200 text-left text-slate-700' : 'h-11 border-b border-slate-200 text-right text-slate-700'}
                                     >
                                         {header.isPlaceholder
                                             ? null
@@ -611,7 +695,7 @@ export default function Page() {
                             table.getRowModel().rows.map((row) => (
                                 <TableRow
                                     key={row.id}
-                                    className={getBottomSummaryRowClass(row.original.rowType)}
+                                    className={`${getBottomSummaryRowClass(row.original.rowType)} hover:bg-slate-50/70`}
                                 >
                                     {row.getVisibleCells().map((cell) => (
                                         <TableCell
@@ -633,14 +717,14 @@ export default function Page() {
                     </TableBody>
 
                     <TableFooter>
-                        <TableRow>
-                            <TableCell className="py-5 text-left text-[13px] font-semibold text-slate-900">
+                        <TableRow className="border-t border-slate-200 bg-slate-100 hover:bg-slate-100">
+                            <TableCell className="py-5 text-left text-[13px] font-bold text-slate-950">
                                 Total
                             </TableCell>
-                            <TableCell className="py-5 text-right text-[13px] font-semibold text-slate-900">
+                            <TableCell className="py-5 text-right text-[13px] font-bold text-slate-950">
                                 {debitTotal > 0 ? formatCurrency(debitTotal) : '0'}
                             </TableCell>
-                            <TableCell className="py-5 text-right text-[13px] font-semibold text-slate-900">
+                            <TableCell className="py-5 text-right text-[13px] font-bold text-slate-950">
                                 {creditTotal > 0 ? formatCurrency(creditTotal) : '0'}
                             </TableCell>
                         </TableRow>

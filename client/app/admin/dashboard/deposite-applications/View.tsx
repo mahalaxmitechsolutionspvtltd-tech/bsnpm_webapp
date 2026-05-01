@@ -33,15 +33,11 @@ import {
     Image as ImageIcon,
     Info,
     Landmark,
-    Loader2,
     ReceiptText,
 } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import {
-    applicationStartDateUpdateHandler,
-    statusUpdateHandler,
-} from "@/services/depositeHandler"
+import { useMutation, useQueryClient, type Query, type QueryKey } from "@tanstack/react-query"
+import { applicationStartDateUpdateHandler, statusUpdateHandler } from "@/services/depositeHandler"
 import { useAuth } from "@/providers/auth-provider"
 
 interface ViewProps {
@@ -70,6 +66,109 @@ type DepositStatus =
     | "completed"
     | "closed"
     | "withdrawn"
+
+type StatusUpdatePayload = Parameters<typeof statusUpdateHandler>[1]
+
+type UnknownRecord = Record<string, unknown>
+
+type AppUser = {
+    admin_name?: string
+}
+
+type PaymentDetailsRecord = {
+    payment_mode?: unknown
+    reference_trn?: unknown
+    remark?: unknown
+    proof_file?: unknown
+    date_of_payment?: unknown
+    total_amount?: unknown
+    status?: unknown
+    created_at?: unknown
+}
+
+type MatchedApplicationRecord = {
+    amount?: unknown
+    application_no?: unknown
+    payment_mode?: unknown
+    reference_trn?: unknown
+    remark?: unknown
+    proof_file?: unknown
+    proofFile?: unknown
+    date_of_payment?: unknown
+    total_amount?: unknown
+    created_at?: unknown
+}
+
+type ApplicationJsonRecord = {
+    application_no?: unknown
+    payment_mode?: unknown
+    reference_trn?: unknown
+    remark?: unknown
+    proof_file?: unknown
+    proofFile?: unknown
+    date_of_payment?: unknown
+    total_amount?: unknown
+    created_at?: unknown
+}
+
+type DepositAccountManagementExtended = Omit<
+    DepositAccountManagementItem,
+    "applications_json" | "matched_application_json" | "application_json"
+> & {
+    application_no?: unknown
+    payment_mode?: unknown
+    reference_trn?: unknown
+    remark?: unknown
+    proof_file?: unknown
+    proofFile?: unknown
+    file?: unknown
+    proof?: unknown
+    file_path?: unknown
+    document?: unknown
+    date_of_payment?: unknown
+    payment_date?: unknown
+    total_amount?: unknown
+    amount?: unknown
+    status?: unknown
+    created_at?: unknown
+    submitted_at?: unknown
+    member_name?: unknown
+    member_id?: unknown
+    applications_json?: ApplicationJsonRecord | null
+    matched_application_json?: MatchedApplicationRecord | null
+    application_json?: {
+        application_no?: unknown
+    } | null
+}
+
+type ExtendedDepositApplication = DepositApplication & {
+    payment_details?: PaymentDetailsRecord | null
+    matched_application_json?: MatchedApplicationRecord | null
+    account_management?:
+        | DepositAccountManagementExtended[]
+        | DepositAccountManagementExtended
+        | DepositAccountManagementItem[]
+        | DepositAccountManagementItem
+        | null
+    tenure_years?: unknown
+    deposit_amount?: unknown
+    scheme_name?: unknown
+    created_at?: unknown
+}
+
+type ResolvedPaymentDetails = {
+    raw: PaymentDetailsRecord | DepositAccountManagementExtended
+    application_no: string | null
+    payment_mode: string | null
+    reference_trn: string | null
+    remark: string | null
+    proof_file: string | null
+    date_of_payment: string | null
+    total_amount: string | null
+    submitted_at: string | null
+    member_name: string | null
+    member_id: string | null
+}
 
 const toDate = (value: unknown) => {
     if (!value) return undefined
@@ -185,11 +284,6 @@ const isImageFile = (filePath: string | null | undefined) => {
     return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(filePath)
 }
 
-const isPdfFile = (filePath: string | null | undefined) => {
-    if (!filePath) return false
-    return /\.pdf(\?.*)?$/i.test(filePath)
-}
-
 const getSafeValue = (...values: unknown[]) => {
     for (const value of values) {
         if (value === null || value === undefined) continue
@@ -199,55 +293,62 @@ const getSafeValue = (...values: unknown[]) => {
     return null
 }
 
-const getApplicationNoFromItem = (item: DepositAccountManagementItem) => {
+const normalizeAccountManagementItem = (
+    item: DepositAccountManagementExtended | DepositAccountManagementItem
+): DepositAccountManagementExtended => {
+    return item as DepositAccountManagementExtended
+}
+
+const getApplicationNoFromItem = (
+    item: DepositAccountManagementExtended | DepositAccountManagementItem
+) => {
+    const normalizedItem = normalizeAccountManagementItem(item)
+
     return getSafeValue(
-        item?.application_no,
-        item?.applications_json?.application_no,
-        item?.matched_application_json?.application_no,
-        item?.application_json?.application_no
+        normalizedItem.application_no,
+        normalizedItem.applications_json?.application_no,
+        normalizedItem.matched_application_json?.application_no,
+        normalizedItem.application_json?.application_no
     )
 }
 
-const getPaymentDetails = (viewData: DepositApplication | null) => {
+const getPaymentDetails = (viewData: DepositApplication | null): ResolvedPaymentDetails | null => {
     if (!viewData) return null
 
-    const pd = (viewData as any)?.payment_details
-    const mj = (viewData as any)?.matched_application_json
+    const resolvedViewData = viewData as ExtendedDepositApplication
+    const pd = resolvedViewData.payment_details
+    const mj = resolvedViewData.matched_application_json
 
     if (pd) {
         return {
             raw: pd,
-            application_no: getSafeValue(viewData?.application_no),
-            payment_mode: getSafeValue(pd?.payment_mode),
-            reference_trn: getSafeValue(pd?.reference_trn),
-            remark: getSafeValue(pd?.remark),
-            proof_file: getSafeValue(pd?.proof_file),
-            date_of_payment: getSafeValue(pd?.date_of_payment),
-            total_amount: getSafeValue(
-                pd?.total_amount,
-                mj?.amount,
-                viewData?.deposit_amount
-            ),
-            status: getSafeValue(pd?.status, viewData?.status),
-            submitted_at: getSafeValue(pd?.created_at),
-            member_name: getSafeValue(viewData?.member_name),
-            member_id: getSafeValue(viewData?.member_id),
+            application_no: getSafeValue(viewData.application_no),
+            payment_mode: getSafeValue(pd.payment_mode),
+            reference_trn: getSafeValue(pd.reference_trn),
+            remark: getSafeValue(pd.remark),
+            proof_file: getSafeValue(pd.proof_file),
+            date_of_payment: getSafeValue(pd.date_of_payment),
+            total_amount: getSafeValue(pd.total_amount, mj?.amount, resolvedViewData.deposit_amount),
+            submitted_at: getSafeValue(pd.created_at),
+            member_name: getSafeValue(viewData.member_name),
+            member_id: getSafeValue(viewData.member_id),
         }
     }
 
-    const raw = viewData?.account_management
+    const raw = resolvedViewData.account_management
     if (!raw) return null
 
-    const items = Array.isArray(raw) ? raw : [raw]
+    const rawItems = Array.isArray(raw) ? raw : [raw]
+    const items = rawItems.map((item) => normalizeAccountManagementItem(item))
     if (!items.length) return null
 
-    const currentApplicationNo = String(viewData?.application_no ?? "").trim()
+    const currentApplicationNo = String(viewData.application_no ?? "").trim()
 
     const matchedByApplicationNo = items.find((item) => {
         const itemApplicationNo = String(getApplicationNoFromItem(item) ?? "").trim()
         return (
-            currentApplicationNo &&
-            itemApplicationNo &&
+            currentApplicationNo.length > 0 &&
+            itemApplicationNo.length > 0 &&
             itemApplicationNo === currentApplicationNo
         )
     })
@@ -261,7 +362,7 @@ const getPaymentDetails = (viewData: DepositApplication | null) => {
             resolved.application_no,
             resolved.applications_json?.application_no,
             resolved.matched_application_json?.application_no,
-            viewData?.application_no
+            viewData.application_no
         ),
         payment_mode: getSafeValue(
             resolved.payment_mode,
@@ -301,13 +402,7 @@ const getPaymentDetails = (viewData: DepositApplication | null) => {
             resolved.amount,
             resolved.applications_json?.total_amount,
             resolved.matched_application_json?.total_amount,
-            viewData?.deposit_amount
-        ),
-        status: getSafeValue(
-            resolved.status,
-            resolved.applications_json?.status,
-            resolved.matched_application_json?.status,
-            viewData?.status
+            resolvedViewData.deposit_amount
         ),
         submitted_at: getSafeValue(
             resolved.created_at,
@@ -315,13 +410,17 @@ const getPaymentDetails = (viewData: DepositApplication | null) => {
             resolved.applications_json?.created_at,
             resolved.matched_application_json?.created_at
         ),
-        member_name: getSafeValue(resolved.member_name, viewData?.member_name),
-        member_id: getSafeValue(resolved.member_id, viewData?.member_id),
+        member_name: getSafeValue(resolved.member_name, viewData.member_name),
+        member_id: getSafeValue(resolved.member_id, viewData.member_id),
     }
 }
 
+const isPlainObject = (value: unknown): value is UnknownRecord => {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 const updateApplicationInData = (
-    oldData: any,
+    oldData: unknown,
     applicationId: string | number,
     patch: Partial<DepositApplication>
 ) => {
@@ -329,28 +428,33 @@ const updateApplicationInData = (
 
     if (Array.isArray(oldData)) {
         return oldData.map((item) =>
-            item && String(item.id) === String(applicationId)
+            isPlainObject(item) && String(item.id) === String(applicationId)
                 ? { ...item, ...patch }
                 : item
         )
     }
 
-    if (oldData?.id && String(oldData.id) === String(applicationId)) {
+    if (isPlainObject(oldData) && "id" in oldData && String(oldData.id) === String(applicationId)) {
         return { ...oldData, ...patch }
     }
 
-    if (Array.isArray(oldData?.data)) {
+    if (isPlainObject(oldData) && Array.isArray(oldData.data)) {
         return {
             ...oldData,
-            data: oldData.data.map((item: any) =>
-                item && String(item.id) === String(applicationId)
+            data: oldData.data.map((item) =>
+                isPlainObject(item) && String(item.id) === String(applicationId)
                     ? { ...item, ...patch }
                     : item
             ),
         }
     }
 
-    if (oldData?.data?.id && String(oldData.data.id) === String(applicationId)) {
+    if (
+        isPlainObject(oldData) &&
+        isPlainObject(oldData.data) &&
+        "id" in oldData.data &&
+        String(oldData.data.id) === String(applicationId)
+    ) {
         return {
             ...oldData,
             data: {
@@ -431,55 +535,31 @@ function ProofPreviewDialog({
     onPreviewError,
 }: ProofPreviewDialogProps) {
     const proofIsImage = React.useMemo(() => isImageFile(proofFilePath), [proofFilePath])
-    const proofIsPdf = React.useMemo(() => isPdfFile(proofFilePath), [proofFilePath])
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-[50vw] h-[80vh] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-2xl  sm:max-w-5xl">
+            <DialogContent className="w-[50vw] h-[80vh] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-2xl sm:max-w-5xl">
                 <DialogHeader className="border-b border-slate-200 bg-linear-to-r from-white via-slate-50 to-white px-5 py-4">
                     <DialogTitle className="text-[18px] font-semibold tracking-tight text-slate-900">
                         Payment Proof
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className=" -mt-5 px-2 space-y-3">
+                <div className="-mt-5 px-2 space-y-3">
                     <div className="flex h-[72vh] items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                        {!proofFileUrl ? (
-                            <div className="text-center">
-                                <ImageIcon className="mx-auto h-10 w-10 text-slate-300" />
-                                <div className="mt-3 text-[14px] text-slate-500">
-                                    No proof file found
-                                </div>
-                            </div>
-                        ) : proofIsImage && !previewFailed ? (
+                        {proofFileUrl && proofIsImage && !previewFailed ? (
                             <img
                                 src={proofFileUrl}
                                 alt="Payment proof"
                                 className="h-full w-full object-contain"
                                 onError={onPreviewError}
                             />
-                        ) : proofIsPdf && !previewFailed ? (
-                            <iframe
-                                src={proofFileUrl}
-                                title="Payment proof preview"
-                                className="h-full w-full"
-                            />
                         ) : (
                             <div className="text-center">
-                                <div className="text-[14px] font-medium text-slate-600">
-                                    Preview failed
+                                <ImageIcon className="mx-auto h-10 w-10 text-slate-300" />
+                                <div className="mt-3 text-[14px] text-slate-500">
+                                    No image found
                                 </div>
-                                {proofFileUrl ? (
-                                    <a
-                                        href={proofFileUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="mt-3 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold text-slate-900 transition hover:bg-slate-50"
-                                    >
-                                        <ExternalLink className="h-4 w-4" />
-                                        Open in New Tab
-                                    </a>
-                                ) : null}
                             </div>
                         )}
                     </div>
@@ -515,7 +595,7 @@ function ProofPreviewDialog({
 
 export default function View({ open, onOpenChange, data }: ViewProps) {
     const queryClient = useQueryClient()
-    const { user } = useAuth()
+    const { user } = useAuth() as { user: AppUser | null }
 
     const [viewData, setViewData] = React.useState<DepositApplication | null>(data)
     const [status, setStatus] = React.useState<DepositStatus>("pending")
@@ -531,15 +611,24 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
         setViewData(data)
     }, [data])
 
-    const backendStatus = String(viewData?.status ?? "pending").toLowerCase()
-    const isBackendApproved = backendStatus === "approved"
+    const paymentDetails = React.useMemo(() => getPaymentDetails(viewData), [viewData])
+
+    const currentApplicationStatus = String(viewData?.status ?? "pending").toLowerCase()
+    const isApplicationApproved = currentApplicationStatus === "approved"
+    const isSelectedStatusApproved = status === "approved"
+    const shouldShowDateControls = isApplicationApproved || isSelectedStatusApproved
+
+    const existingStartDate = toDate(viewData?.start_date)
+    const existingEndDate = toDate(viewData?.end_date)
+    const hasExistingStartDate = !!existingStartDate
+    const hasExistingEndDate = !!existingEndDate
+    const hasSavedDates = hasExistingStartDate && hasExistingEndDate
+    const shouldHideSaveDateButton = !shouldShowDateControls
 
     const tenureYears = React.useMemo(() => {
-        const years = Number(viewData?.tenure_years)
+        const years = Number((viewData as ExtendedDepositApplication | null)?.tenure_years)
         return Number.isNaN(years) ? 0 : years
-    }, [viewData?.tenure_years])
-
-    const paymentDetails = React.useMemo(() => getPaymentDetails(viewData), [viewData])
+    }, [viewData])
 
     const proofFilePath = paymentDetails?.proof_file ?? null
 
@@ -558,19 +647,15 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
         proofFileCandidates.length > 0 ? proofFileCandidates[proofUrlIndex] : null
 
     const proofIsImage = React.useMemo(() => isImageFile(proofFilePath), [proofFilePath])
-    const proofIsPdf = React.useMemo(() => isPdfFile(proofFilePath), [proofFilePath])
 
     React.useEffect(() => {
-        const nextStatus =
-            (String(viewData?.status ?? "pending").toLowerCase() as DepositStatus) ||
-            "pending"
-
-        const existingStartDate = toDate(viewData?.start_date)
-        const existingEndDate = toDate(viewData?.end_date)
+        const nextStatus = (String(viewData?.status ?? "pending").toLowerCase() as DepositStatus) || "pending"
+        const resolvedStartDate = toDate(viewData?.start_date)
+        const resolvedEndDate = toDate(viewData?.end_date)
 
         setStatus(nextStatus)
-        setStartDate(existingStartDate)
-        setEndDate(existingEndDate)
+        setStartDate(resolvedStartDate)
+        setEndDate(resolvedEndDate)
     }, [viewData])
 
     const syncApplicationCache = (
@@ -579,8 +664,8 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
     ) => {
         const allQueries = queryClient.getQueryCache().findAll()
 
-        allQueries.forEach((query) => {
-            queryClient.setQueryData(query.queryKey, (oldData: any) =>
+        allQueries.forEach((query: Query) => {
+            queryClient.setQueryData(query.queryKey, (oldData: unknown) =>
                 updateApplicationInData(oldData, applicationId, patch)
             )
         })
@@ -598,15 +683,16 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
         mutationKey: ["deposit-application-status-update"],
         mutationFn: async ({
             id,
-            status,
+            status: nextStatus,
         }: {
             id: number | string
             status: DepositStatus
         }) => {
-            return await statusUpdateHandler(id, {
-                status,
-                updated_by: user?.admin_name,
-            } as any)
+            const payload = {
+                status: nextStatus,
+            } as unknown as StatusUpdatePayload
+
+            return await statusUpdateHandler(id, payload)
         },
         onSuccess: (_, variables) => {
             syncApplicationCache(variables.id, {
@@ -615,11 +701,11 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
             } as Partial<DepositApplication>)
 
             queryClient.invalidateQueries({
-                predicate: (query) =>
-                    Array.isArray(query.queryKey) &&
-                    query.queryKey.some((key) =>
-                        String(key).toLowerCase().includes("deposit")
-                    ),
+                predicate: (query) => {
+                    const queryKey = query.queryKey as QueryKey
+                    return Array.isArray(queryKey) &&
+                        queryKey.some((key) => String(key).toLowerCase().includes("deposit"))
+                },
             })
         },
     })
@@ -632,50 +718,73 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
             end_date,
         }: {
             id: number | string
-            start_date: string
-            end_date: string
+            start_date: Date
+            end_date: Date
         }) => {
             return await applicationStartDateUpdateHandler(id, {
                 start_date,
                 end_date,
                 updated_by: user?.admin_name,
-            } as any)
+            })
         },
         onSuccess: (_, variables) => {
             syncApplicationCache(variables.id, {
-                start_date: variables.start_date as any,
-                end_date: variables.end_date as any,
+                start_date: format(variables.start_date, "yyyy-MM-dd"),
+                end_date: format(variables.end_date, "yyyy-MM-dd"),
                 updated_by: user?.admin_name,
             } as Partial<DepositApplication>)
 
             queryClient.invalidateQueries({
-                predicate: (query) =>
-                    Array.isArray(query.queryKey) &&
-                    query.queryKey.some((key) =>
-                        String(key).toLowerCase().includes("deposit")
-                    ),
+                predicate: (query) => {
+                    const queryKey = query.queryKey as QueryKey
+                    return Array.isArray(queryKey) &&
+                        queryKey.some((key) => String(key).toLowerCase().includes("deposit"))
+                },
             })
         },
     })
 
-    const handleSave = async () => {
-        if (!viewData || saveStatus.isPending) return
+    const shouldDisableDateFields = saveDates.isPending || hasSavedDates
+    const shouldDisableSaveDateButton =
+        saveDates.isPending ||
+        hasSavedDates ||
+        !startDate ||
+        !endDate
 
-        await saveStatus.mutateAsync({
-            id: viewData.id,
-            status,
-        })
+    const handleStatusChange = async (value: string) => {
+        const nextStatus = value as DepositStatus
+        const previousStatus = status
+
+        setStatus(nextStatus)
+
+        if (!viewData || saveStatus.isPending || nextStatus === currentApplicationStatus) return
+
+        try {
+            await saveStatus.mutateAsync({
+                id: viewData.id,
+                status: nextStatus,
+            })
+        } catch {
+            setStatus(previousStatus)
+        }
     }
 
     const handleDateSave = async () => {
-        if (!viewData || !startDate || !endDate || !isBackendApproved || saveDates.isPending) {
+        if (
+            !viewData ||
+            !startDate ||
+            !endDate ||
+            !shouldShowDateControls ||
+            shouldDisableDateFields ||
+            saveDates.isPending
+        ) {
             return
         }
 
         await saveDates.mutateAsync({
             id: viewData.id,
-            start_date: format(startDate, "yyyy-MM-dd"),
-            end_date: format(endDate, "yyyy-MM-dd"),
+            start_date: startDate,
+            end_date: endDate,
         })
     }
 
@@ -689,11 +798,19 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
 
     const memberName = paymentDetails?.member_name ?? viewData?.member_name ?? "-"
     const memberId = paymentDetails?.member_id ?? viewData?.member_id ?? "-"
-    const amount = paymentDetails?.total_amount ?? viewData?.deposit_amount ?? "-"
-    const paidDate = paymentDetails?.date_of_payment ?? viewData?.created_at ?? "-"
-    const schemeLabel = viewData?.scheme_name ?? "Deposit Scheme"
+    const amount =
+        paymentDetails?.total_amount ??
+        ((viewData as ExtendedDepositApplication | null)?.deposit_amount ?? "-")
+    const paidDate =
+        paymentDetails?.date_of_payment ??
+        ((viewData as ExtendedDepositApplication | null)?.created_at ?? "-")
+    const schemeLabel = String(
+        ((viewData as ExtendedDepositApplication | null)?.scheme_name ?? "Deposit Scheme")
+    )
     const remark = paymentDetails?.remark ?? "No remark added"
-    const submittedAt = paymentDetails?.submitted_at ?? viewData?.created_at ?? "-"
+    const submittedAt =
+        paymentDetails?.submitted_at ??
+        ((viewData as ExtendedDepositApplication | null)?.created_at ?? "-")
 
     return (
         <>
@@ -743,20 +860,10 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                             <Badge
                                                 className={cn(
                                                     "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold capitalize shadow-sm",
-                                                    getStatusTone(
-                                                        String(
-                                                            paymentDetails?.status ??
-                                                            viewData?.status ??
-                                                            "pending"
-                                                        )
-                                                    )
+                                                    getStatusTone(currentApplicationStatus)
                                                 )}
                                             >
-                                                {String(
-                                                    paymentDetails?.status ??
-                                                    viewData?.status ??
-                                                    "pending"
-                                                )}
+                                                {currentApplicationStatus}
                                             </Badge>
                                         }
                                     />
@@ -816,7 +923,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                                             </td>
                                                             <td className="px-4 py-3 text-[10px] text-slate-700">
                                                                 {paymentDetails?.application_no ??
-                                                                    viewData?.application_no ??
+                                                                    viewData.application_no ??
                                                                     "-"}
                                                             </td>
                                                             <td className="px-4 py-3 text-[10px] font-semibold text-slate-900">
@@ -878,30 +985,18 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
 
                                         <div className="p-1">
                                             <div className="flex h-70.5 items-center justify-center rounded-md border border-slate-200 bg-slate-50">
-                                                {!proofFileUrl ? (
-                                                    <div className="text-center">
-                                                        <ImageIcon className="mx-auto h-8 w-8 text-slate-300" />
-                                                        <div className="mt-2 text-[13px] text-slate-500">
-                                                            No proof file found
-                                                        </div>
-                                                    </div>
-                                                ) : proofIsImage && !previewFailed ? (
+                                                {proofFileUrl && proofIsImage && !previewFailed ? (
                                                     <img
                                                         src={proofFileUrl}
                                                         alt="Receipt proof"
                                                         className="h-full w-full rounded-md object-contain"
                                                         onError={handleProofLoadError}
                                                     />
-                                                ) : proofIsPdf && !previewFailed ? (
-                                                    <iframe
-                                                        src={proofFileUrl}
-                                                        title="Receipt proof"
-                                                        className="h-full w-full rounded-md"
-                                                    />
                                                 ) : (
                                                     <div className="text-center">
-                                                        <div className="text-[14px] text-slate-500">
-                                                            Preview failed
+                                                        <ImageIcon className="mx-auto h-8 w-8 text-slate-300" />
+                                                        <div className="mt-2 text-[13px] text-slate-500">
+                                                            No image found
                                                         </div>
                                                     </div>
                                                 )}
@@ -909,7 +1004,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                         </div>
 
                                         <div className="border-t border-slate-200 px-4 py-2">
-                                            {proofFileUrl ? (
+                                            {proofFileUrl && proofIsImage && !previewFailed ? (
                                                 <Button
                                                     type="button"
                                                     variant="ghost"
@@ -923,7 +1018,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                                 </Button>
                                             ) : (
                                                 <div className="text-[13px] text-slate-400">
-                                                    No file attached
+                                                    No image found
                                                 </div>
                                             )}
                                         </div>
@@ -935,10 +1030,10 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                         Quick Actions
                                     </div>
 
-                                    <div className="grid gap-3 xl:grid-cols-[1fr_1fr_auto_auto]">
+                                    <div className="grid gap-3 xl:grid-cols-[1fr_1fr_auto]">
                                         <Select
                                             value={status}
-                                            onValueChange={(value) => setStatus(value as DepositStatus)}
+                                            onValueChange={handleStatusChange}
                                             disabled={saveStatus.isPending}
                                         >
                                             <SelectTrigger className="h-10 rounded-xl bg-white text-[13px]">
@@ -956,116 +1051,106 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                             </SelectContent>
                                         </Select>
 
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <Popover
-                                                open={startPopoverOpen}
-                                                onOpenChange={setStartPopoverOpen}
-                                            >
-                                                <PopoverTrigger asChild>
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        disabled={!isBackendApproved || saveDates.isPending}
-                                                        className="h-10 justify-start rounded-xl bg-white text-left text-[13px]"
-                                                    >
-                                                        {startDate
-                                                            ? format(startDate, "yyyy-MM-dd")
-                                                            : "Start date"}
-                                                    </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0" align="start">
-                                                    <Calendar
-                                                        mode="single"
-                                                        selected={startDate}
-                                                        captionLayout="dropdown"
-                                                        fromYear={2000}
-                                                        toYear={2100}
-                                                        onSelect={(date) => {
-                                                            if (!date) return
+                                        {shouldShowDateControls ? (
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <Popover
+                                                    open={shouldDisableDateFields ? false : startPopoverOpen}
+                                                    onOpenChange={(nextOpen) => {
+                                                        if (shouldDisableDateFields) return
+                                                        setStartPopoverOpen(nextOpen)
+                                                    }}
+                                                >
+                                                    <PopoverTrigger asChild>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            disabled={shouldDisableDateFields}
+                                                            className="h-10 justify-start rounded-xl bg-white text-left text-[13px]"
+                                                        >
+                                                            {startDate
+                                                                ? format(startDate, "yyyy-MM-dd")
+                                                                : "Start date"}
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-auto p-0" align="start">
+                                                        <Calendar
+                                                            mode="single"
+                                                            selected={startDate}
+                                                            captionLayout="dropdown"
+                                                            fromYear={2000}
+                                                            toYear={2100}
+                                                            onSelect={(date) => {
+                                                                if (!date || shouldDisableDateFields) return
 
-                                                            const normalizedDate = new Date(date)
-                                                            normalizedDate.setHours(0, 0, 0, 0)
+                                                                const normalizedDate = new Date(date)
+                                                                normalizedDate.setHours(0, 0, 0, 0)
 
-                                                            setStartDate(normalizedDate)
-                                                            setEndDate(
-                                                                calculateEndDateFromStart(
-                                                                    normalizedDate,
-                                                                    tenureYears
+                                                                setStartDate(normalizedDate)
+                                                                setEndDate(
+                                                                    calculateEndDateFromStart(
+                                                                        normalizedDate,
+                                                                        tenureYears
+                                                                    )
                                                                 )
-                                                            )
-                                                            setStartPopoverOpen(false)
-                                                        }}
-                                                        initialFocus
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
+                                                                setStartPopoverOpen(false)
+                                                            }}
+                                                            initialFocus
+                                                        />
+                                                    </PopoverContent>
+                                                </Popover>
 
-                                            <Popover
-                                                open={endPopoverOpen}
-                                                onOpenChange={setEndPopoverOpen}
+                                                <Popover
+                                                    open={shouldDisableDateFields ? false : endPopoverOpen}
+                                                    onOpenChange={(nextOpen) => {
+                                                        if (shouldDisableDateFields) return
+                                                        setEndPopoverOpen(nextOpen)
+                                                    }}
+                                                >
+                                                    <PopoverTrigger asChild>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            disabled={shouldDisableDateFields}
+                                                            className="h-10 justify-start rounded-xl bg-white text-left text-[13px]"
+                                                        >
+                                                            {endDate
+                                                                ? format(endDate, "yyyy-MM-dd")
+                                                                : "End date"}
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-auto p-0" align="start">
+                                                        <Calendar
+                                                            mode="single"
+                                                            selected={endDate}
+                                                            captionLayout="dropdown"
+                                                            fromYear={2000}
+                                                            toYear={2100}
+                                                            onSelect={(date) => {
+                                                                if (!date || shouldDisableDateFields) return
+
+                                                                const normalizedDate = new Date(date)
+                                                                normalizedDate.setHours(0, 0, 0, 0)
+
+                                                                setEndDate(normalizedDate)
+                                                                setEndPopoverOpen(false)
+                                                            }}
+                                                            initialFocus
+                                                        />
+                                                    </PopoverContent>
+                                                </Popover>
+                                            </div>
+                                        ) : null}
+
+                                        {!shouldHideSaveDateButton ? (
+                                            <Button
+                                                type="button"
+                                                onClick={handleDateSave}
+                                                disabled={shouldDisableSaveDateButton}
+                                                className="h-10 rounded-xl px-4 text-[13px]"
                                             >
-                                                <PopoverTrigger asChild>
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        disabled={!isBackendApproved || saveDates.isPending}
-                                                        className="h-10 justify-start rounded-xl bg-white text-left text-[13px]"
-                                                    >
-                                                        {endDate
-                                                            ? format(endDate, "yyyy-MM-dd")
-                                                            : "End date"}
-                                                    </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0" align="start">
-                                                    <Calendar
-                                                        mode="single"
-                                                        selected={endDate}
-                                                        captionLayout="dropdown"
-                                                        fromYear={2000}
-                                                        toYear={2100}
-                                                        onSelect={(date) => {
-                                                            if (!date) return
-                                                            const normalizedDate = new Date(date)
-                                                            normalizedDate.setHours(0, 0, 0, 0)
-                                                            setEndDate(normalizedDate)
-                                                            setEndPopoverOpen(false)
-                                                        }}
-                                                        initialFocus
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
-                                        </div>
-
-                                        <Button
-                                            type="button"
-                                            onClick={handleSave}
-                                            disabled={
-                                                saveStatus.isPending ||
-                                                status ===
-                                                String(viewData.status ?? "pending").toLowerCase()
-                                            }
-                                            className="h-10 rounded-xl px-4 text-[13px]"
-                                        >
-                                            {saveStatus.isPending ? <Spinner /> : "Confirm Status"}
-                                        </Button>
-
-                                        <Button
-                                            type="button"
-                                            onClick={handleDateSave}
-                                            disabled={
-                                                !isBackendApproved ||
-                                                !startDate ||
-                                                !endDate ||
-                                                saveDates.isPending
-                                            }
-                                            className="h-10 rounded-xl px-4 text-[13px]"
-                                        >
-                                            {saveDates.isPending ? (
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                            ) : (
-                                                "Save Dates"
-                                            )}
-                                        </Button>
+                                                {saveDates.isPending ? <Spinner /> : "Save Date"}
+                                            </Button>
+                                        ) : null}
                                     </div>
                                 </div>
                             </div>

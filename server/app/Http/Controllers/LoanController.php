@@ -147,9 +147,6 @@ class LoanController extends Controller
         );
     }
 
-
-    // LOAN APPLICAION  GET,APPROVE,UPDATE  
-
     public function getLoanApplications()
     {
         try {
@@ -167,6 +164,28 @@ class LoanController extends Controller
             );
         }
     }
+
+    private function getApplicationTenureMonths(LoanApplication $application): int
+    {
+        $tenureYears = (int) ($application->tenure_years ?? 0);
+        $tenureMonths = (int) ($application->tenure_months ?? 0);
+
+        if ($tenureMonths > 0) {
+            return $tenureMonths;
+        }
+
+        if ($tenureYears > 0) {
+            return $tenureYears * 12;
+        }
+
+        return 0;
+    }
+
+    private function getApplicationEndDate(Carbon $startDate, int $tenureMonths): Carbon
+    {
+        return $startDate->copy()->addMonthsNoOverflow($tenureMonths)->subDay();
+    }
+
     public function approveLoanApplication(Request $request, $application_id)
     {
         $validator = Validator::make($request->all(), [
@@ -206,6 +225,20 @@ class LoanController extends Controller
                 ? Carbon::parse($request->start_date)->startOfDay()
                 : null;
 
+            $tenureMonths = $this->getApplicationTenureMonths($application);
+            $endDate = null;
+
+            if ($startDate) {
+                if ($tenureMonths <= 0) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Tenure not found for this application',
+                    ], 422);
+                }
+
+                $endDate = $this->getApplicationEndDate($startDate, $tenureMonths);
+            }
+
             $sanchalakApproved = strtolower(trim((string) $application->sanchalak_approvals_status)) === 'approved';
             $guarantor1Approved = strtolower(trim((string) $application->guarantor_1_status)) === 'approved';
             $guarantor2Approved = strtolower(trim((string) $application->guarantor_2_status)) === 'approved';
@@ -229,29 +262,6 @@ class LoanController extends Controller
                         'message' => 'Start date is required when application is approved',
                     ], 422);
                 }
-            }
-
-            $endDate = null;
-            $tenureMonths = 0;
-
-            if ($requestedStatus === 'approved') {
-                $tenureYears = (int) ($application->tenure_years ?? 0);
-                $tenureMonthsFromDb = (int) ($application->tenure_months ?? 0);
-
-                if ($tenureMonthsFromDb > 0) {
-                    $tenureMonths = $tenureMonthsFromDb;
-                } elseif ($tenureYears > 0) {
-                    $tenureMonths = $tenureYears * 12;
-                }
-
-                if ($tenureMonths <= 0) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Tenure not found for this application',
-                    ], 422);
-                }
-
-                $endDate = $startDate->copy()->addMonths($tenureMonths)->subDay();
             }
 
             $deductions = $request->deductions ?? [];
@@ -348,7 +358,7 @@ class LoanController extends Controller
                 $outstandingBalance = round($principal, 2);
 
                 for ($i = 1; $i <= $numberOfMonths; $i++) {
-                    $emiDate = $startDate->copy()->addMonths($i);
+                    $emiDate = $startDate->copy()->addMonthsNoOverflow($i);
 
                     $interestAmount = $monthlyRate > 0
                         ? round($outstandingBalance * $monthlyRate, 2)
@@ -623,13 +633,10 @@ class LoanController extends Controller
                 $emiDate = $emi['emi_date'];
                 $emiStatus = $emi['status'];
 
-                // only unpaid EMI check
                 if (!in_array($emiStatus, ['pending', 'overdue', 'partial'])) {
                     continue;
                 }
 
-                // only past EMI should become overdue
-                // today chi EMI overdue nahi
                 if ($emiDate->lt($today)) {
                     $overdueEmi = [
                         'emi_date' => $emiDate->format('Y-m-d'),
@@ -695,10 +702,6 @@ class LoanController extends Controller
             );
         }
     }
-
-
-
-    // Loan recovry mail send
 
     public function sendRecoveryNotice(Request $request, $application_no)
     {

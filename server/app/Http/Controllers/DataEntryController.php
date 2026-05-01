@@ -127,7 +127,7 @@ class DataEntryController extends Controller
                 $creditJson = is_array($decodedCreditJson) ? $decodedCreditJson : [];
             }
 
-            $targetJson = $entryType === 'expense' ? $debitJson : $creditJson;
+            $targetJson = $entryType === 'expense' ? $creditJson : $debitJson;
 
             $nextJsonId = 1;
 
@@ -152,11 +152,11 @@ class DataEntryController extends Controller
             ];
 
             if ($entryType === 'expense') {
-                $debitJson[] = $trialBalanceEntry;
-                $trialBalance->debit_json = $debitJson;
-            } else {
                 $creditJson[] = $trialBalanceEntry;
                 $trialBalance->credit_json = $creditJson;
+            } else {
+                $debitJson[] = $trialBalanceEntry;
+                $trialBalance->debit_json = $debitJson;
             }
 
             $trialBalance->updated_by = $validated['created_by'] ?? null;
@@ -179,8 +179,6 @@ class DataEntryController extends Controller
             );
         }
     }
-
-    // update contorller
 
     public function updateDataEntry(Request $request, int $id)
     {

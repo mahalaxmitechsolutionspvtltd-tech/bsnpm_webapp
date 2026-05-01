@@ -1,0 +1,86 @@
+[
+    {
+        "id": 751,
+        "account_management_id": 751,
+        "member_id": "BSNPM130",
+        "member_name": "Sawant Sunil Uttam",
+        "submitted_on": "2026-03-03",
+        "submitted_time": "00:00:00",
+        "date_of_payment": "2026-03-03T00:00:00.000000Z",
+        "date_paid": "2026-03-03T00:00:00.000000Z",
+        "amount": 2500,
+        "total_amount": "2500.00",
+        "payment_mode": "Online",
+        "proof_file": "http://localhost:8000/payment_proofs/1777367713_69f07aa14cb2a.jpg",
+        "proof_file_url": "http://localhost:8000/payment_proofs/1777367713_69f07aa14cb2a.jpg",
+        "proof_file_name": "1777367713_69f07aa14cb2a.jpg",
+        "reference_trn": "1234567890",
+        "remark": null,
+        "status": "pending",
+        "created_by": "Sawant Sunil Uttam",
+        "created_at": "2026-03-03T00:00:00.000000Z",
+        "submitted_at": "2026-03-03T00:00:00.000000Z",
+        "application_no": "BSNPM130-LP-01",
+        "source_type": "deposit",
+        "application_details": {
+            "title": "Deposit - Lakhpati Yojna (3 Years)",
+            "member_name": "Sawant Sunil Uttam",
+            "amount": 2500,
+            "application_no": "BSNPM130-LP-01",
+            "tenure": null
+        },
+        "proof": {
+            "file_url": "http://localhost:8000/payment_proofs/1777367713_69f07aa14cb2a.jpg",
+            "file_name": "1777367713_69f07aa14cb2a.jpg",
+            "file_type": "jpg"
+        },
+        "installment": {
+            "date": "03-01-2025",
+            "amount": "2500.00",
+            "status": "paid",
+            "updated_by": "rajan rane"
+        }
+    },
+    {
+        "id": 752,
+        "account_management_id": 752,
+        "member_id": "BSNPM130",
+        "member_name": "Sawant Sunil Uttam",
+        "submitted_on": "2026-03-03",
+        "submitted_time": "00:00:00",
+        "date_of_payment": "2026-03-03T00:00:00.000000Z",
+        "date_paid": "2026-03-03T00:00:00.000000Z",
+        "amount": 2500,
+        "total_amount": "2500.00",
+        "payment_mode": "Online",
+        "proof_file": "http://localhost:8000/payment_proofs/1777367713_69f07aa14cb2a.jpg",
+        "proof_file_url": "http://localhost:8000/payment_proofs/1777367713_69f07aa14cb2a.jpg",
+        "proof_file_name": "1777367713_69f07aa14cb2a.jpg",
+        "reference_trn": "1234567890",
+        "remark": null,
+        "status": "pending",
+        "created_by": "Sawant Sunil Uttam",
+        "created_at": "2026-03-03T00:00:00.000000Z",
+        "submitted_at": "2026-03-03T00:00:00.000000Z",
+        "application_no": "BSNPM130-LP-01",
+        "source_type": "deposit",
+        "application_details": {
+            "title": "Deposit - Lakhpati Yojna (3 Years)",
+            "member_name": "Sawant Sunil Uttam",
+            "amount": 2500,
+            "application_no": "BSNPM130-LP-01",
+            "tenure": null
+        },
+        "proof": {
+            "file_url": "http://localhost:8000/payment_proofs/1777367713_69f07aa14cb2a.jpg",
+            "file_name": "1777367713_69f07aa14cb2a.jpg",
+            "file_type": "jpg"
+        },
+        "installment": {
+            "date": "03-02-2025",
+            "amount": "2500.00",
+            "status": "paid",
+            "updated_by": "rajan rane"
+        }
+    }
+]

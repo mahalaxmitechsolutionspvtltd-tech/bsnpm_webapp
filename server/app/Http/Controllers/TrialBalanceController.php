@@ -48,7 +48,7 @@ class TrialBalanceController extends Controller
                     'title' => $title,
                     'debit' => (float) $debit,
                     'credit' => (float) $credit,
-                    'value' => (float) ($credit > 0 ? $credit : $debit),
+                    'value' => (float) ($debit > 0 ? $debit : $credit),
                     'type' => $type,
                 ];
             };
@@ -107,6 +107,7 @@ class TrialBalanceController extends Controller
                     }
 
                     $title = trim((string) ($item['title'] ?? ''));
+
                     if ($title === '') {
                         $title = $fallbackTitle;
                     }
@@ -209,25 +210,22 @@ class TrialBalanceController extends Controller
             $aggregatedCreditRows = $aggregateEntriesByTitle($allCreditJson, 'Untitled Credit');
 
             $debitTotal = 0.0;
-            foreach ($aggregatedDebitRows as $item) {
-                $debitTotal += (float) ($item['amount'] ?? 0);
-            }
-
-            $creditTotal = 0.0;
             $principalAmountTotal = 0.0;
             $interestAmountTotal = 0.0;
 
-            foreach ($allCreditJson as $item) {
+            foreach ($allDebitJson as $item) {
                 if (!is_array($item)) {
                     continue;
                 }
 
-                $creditTotal += $getEntryAmount($item);
+                $debitTotal += $getEntryAmount($item);
+
                 $principalAmountTotal += $this->toFloatAmount(
                     $item['principal amount']
                     ?? $item['principal_amount']
                     ?? 0
                 );
+
                 $interestAmountTotal += $this->toFloatAmount(
                     $item['interest amount']
                     ?? $item['interest_amount']
@@ -235,16 +233,23 @@ class TrialBalanceController extends Controller
                 );
 
                 $mode = $normalizeMode($item['mode'] ?? $item['payment_mode'] ?? '');
+
                 if (str_contains($mode, 'cash')) {
                     $cashInHand += $getEntryAmount($item);
                 }
             }
 
-            $sortedCreditEntries = array_values(array_filter($allCreditJson, function ($item) {
+            $creditTotal = 0.0;
+
+            foreach ($aggregatedCreditRows as $item) {
+                $creditTotal += (float) ($item['amount'] ?? 0);
+            }
+
+            $sortedDebitEntries = array_values(array_filter($allDebitJson, function ($item) {
                 return is_array($item);
             }));
 
-            usort($sortedCreditEntries, function ($a, $b) use ($parseEntryDate) {
+            usort($sortedDebitEntries, function ($a, $b) use ($parseEntryDate) {
                 $dateA = $parseEntryDate($a['date'] ?? null);
                 $dateB = $parseEntryDate($b['date'] ?? null);
 
@@ -263,19 +268,19 @@ class TrialBalanceController extends Controller
                 return 0;
             });
 
-            if (!empty($sortedCreditEntries)) {
-                $openingBalance = $getEntryAmount($sortedCreditEntries[0]);
+            if (!empty($sortedDebitEntries)) {
+                $openingBalance = $getEntryAmount($sortedDebitEntries[0]);
             }
 
-            $closingBalance = (float) ($creditTotal - $debitTotal);
+            $closingBalance = (float) ($debitTotal - $creditTotal);
             $difference = (float) $closingBalance;
 
             $summary = [];
 
-            $summary[] = $makeSummaryRow('Opening Balance', 0, (float) $openingBalance, 'opening_balance');
-            $summary[] = $makeSummaryRow('Cash in Hand', 0, (float) $cashInHand, 'cash_in_hand');
-            $summary[] = $makeSummaryRow('Bank Balance', 0, (float) $bankBalance, 'bank_balance');
-            $summary[] = $makeSummaryRow('Closing Balance', 0, (float) $closingBalance, 'closing_balance');
+            $summary[] = $makeSummaryRow('Opening Balance', (float) $openingBalance, 0, 'opening_balance');
+            $summary[] = $makeSummaryRow('Cash in Hand', (float) $cashInHand, 0, 'cash_in_hand');
+            $summary[] = $makeSummaryRow('Bank Balance', (float) $bankBalance, 0, 'bank_balance');
+            $summary[] = $makeSummaryRow('Closing Balance', (float) $closingBalance, 0, 'closing_balance');
 
             foreach ($aggregatedDebitRows as $item) {
                 $summary[] = $makeSummaryRow(
@@ -295,11 +300,11 @@ class TrialBalanceController extends Controller
                 );
             }
 
-            $summary[] = $makeSummaryRow('Principal Amount Total', 0, (float) $principalAmountTotal, 'principal_total');
-            $summary[] = $makeSummaryRow('Loan Interest', 0, (float) $interestAmountTotal, 'interest_total');
+            $summary[] = $makeSummaryRow('Principal Amount Total', (float) $principalAmountTotal, 0, 'principal_total');
+            $summary[] = $makeSummaryRow('Loan Interest', (float) $interestAmountTotal, 0, 'interest_total');
             $summary[] = $makeSummaryRow('Debit Total', (float) $debitTotal, 0, 'debit_total');
             $summary[] = $makeSummaryRow('Credit Total', 0, (float) $creditTotal, 'credit_total');
-            $summary[] = $makeSummaryRow('Difference', 0, (float) $difference, 'difference');
+            $summary[] = $makeSummaryRow('Difference', (float) $difference, 0, 'difference');
             $summary[] = $makeSummaryRow('Total', (float) $debitTotal, (float) $creditTotal, 'total');
 
             return ApiResponse::success(
@@ -333,40 +338,43 @@ class TrialBalanceController extends Controller
             return;
         }
 
-        $creditJson = $this->normalizeJsonArray($trialBalance->credit_json);
         $debitJson = $this->normalizeJsonArray($trialBalance->debit_json);
+        $creditJson = $this->normalizeJsonArray($trialBalance->credit_json);
 
-        $creditTotal = '0.00';
-        foreach ($creditJson as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
+        $debitTotal = 0.0;
 
-            $creditTotal = bcadd(
-                $creditTotal,
-                $this->toDecimalString($item['amount'] ?? 0),
-                2
-            );
-        }
-
-        $debitTotal = '0.00';
         foreach ($debitJson as $item) {
             if (!is_array($item)) {
                 continue;
             }
 
-            $debitTotal = bcadd(
-                $debitTotal,
-                $this->toDecimalString($item['amount'] ?? 0),
-                2
+            $debitTotal += $this->toFloatAmount(
+                $item['amount']
+                ?? $item['emi amount']
+                ?? $item['emi_amount']
+                ?? 0
             );
         }
 
-        $bankBalance = bcsub($creditTotal, $debitTotal, 2);
+        $creditTotal = 0.0;
 
-        $bankBalance = bcsub($creditTotal, $debitTotal, 2);
+        foreach ($creditJson as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
 
-        if ((string) ($trialBalance->bank_balance ?? '0.00') !== $bankBalance) {
+            $creditTotal += $this->toFloatAmount(
+                $item['amount']
+                ?? $item['emi amount']
+                ?? $item['emi_amount']
+                ?? 0
+            );
+        }
+
+        $bankBalance = number_format($debitTotal - $creditTotal, 2, '.', '');
+        $currentBankBalance = number_format($this->toFloatAmount($trialBalance->bank_balance ?? 0), 2, '.', '');
+
+        if ($currentBankBalance !== $bankBalance) {
             $trialBalance->setAttribute('bank_balance', $bankBalance);
             $trialBalance->save();
         }

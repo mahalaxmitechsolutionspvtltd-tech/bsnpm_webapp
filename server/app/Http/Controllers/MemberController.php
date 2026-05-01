@@ -7,7 +7,7 @@ use App\Mail\MemberWelcomeMail;
 use App\Models\AccountManagement;
 use App\Models\Member;
 use App\Models\MemberEmergencyFund;
-use App\Models\MemberJoiningFee;
+use App\Models\MembersJoiningFee;
 use App\Models\MemberShareCapital;
 use App\Models\TrialBalance;
 use Illuminate\Http\Request;
@@ -81,7 +81,7 @@ class MemberController extends Controller
             $joiningFeeDate = now();
             $joiningFeeAmount = 100.00;
 
-            MemberJoiningFee::create([
+            MembersJoiningFee::create([
                 'member_id' => $member->member_id,
                 'member_name' => $member->full_name,
                 'joining_fee_amount' => $joiningFeeAmount,
@@ -118,26 +118,27 @@ class MemberController extends Controller
                 ]);
             }
 
-            $creditJson = $trialBalance->credit_json;
-            if (!is_array($creditJson)) {
-                $creditJson = json_decode((string) $creditJson, true) ?: [];
+            $debitJson = $trialBalance->debit_json;
+            if (!is_array($debitJson)) {
+                $debitJson = json_decode((string) $debitJson, true) ?: [];
             }
 
-            $nextCreditId = 1;
-            if (!empty($creditJson)) {
-                $ids = array_column($creditJson, 'id');
-                $nextCreditId = max($ids) + 1;
+            $nextDebitId = 1;
+            if (!empty($debitJson)) {
+                $ids = array_column($debitJson, 'id');
+                $ids = array_filter($ids, fn ($id) => is_numeric($id));
+                $nextDebitId = !empty($ids) ? max($ids) + 1 : 1;
             }
 
-            $creditJson[] = [
-                'id' => $nextCreditId,
+            $debitJson[] = [
+                'id' => $nextDebitId,
                 'title' => 'member joining fee',
                 'date' => $joiningFeeDate->format('d-m-Y'),
                 'amount' => $joiningFeeAmount,
                 'mode' => 'online',
                 'created_by' => $createdBy,
             ];
-            $nextCreditId++;
+            $nextDebitId++;
 
             $applications = [];
 
@@ -171,15 +172,15 @@ class MemberController extends Controller
 
                 $totalAmount += (float) $validated['share_capital_amount'];
 
-                $creditJson[] = [
-                    'id' => $nextCreditId,
+                $debitJson[] = [
+                    'id' => $nextDebitId,
                     'title' => 'share capital',
                     'date' => now()->format('d-m-Y'),
                     'amount' => (float) $validated['share_capital_amount'],
                     'mode' => 'online',
                     'created_by' => $createdBy,
                 ];
-                $nextCreditId++;
+                $nextDebitId++;
             }
 
             if (($validated['emergancy_fund'] ?? null) === 'yes' && !empty($validated['emergancy_fund_amount'])) {
@@ -202,19 +203,19 @@ class MemberController extends Controller
 
                 $totalAmount += (float) $validated['emergancy_fund_amount'];
 
-                $creditJson[] = [
-                    'id' => $nextCreditId,
+                $debitJson[] = [
+                    'id' => $nextDebitId,
                     'title' => 'emergency fund',
                     'date' => now()->format('d-m-Y'),
                     'amount' => (float) $validated['emergancy_fund_amount'],
                     'mode' => 'online',
                     'created_by' => $createdBy,
                 ];
-                $nextCreditId++;
+                $nextDebitId++;
             }
 
             $trialBalance->update([
-                'credit_json' => $creditJson,
+                'debit_json' => $debitJson,
                 'updated_by' => $createdBy,
                 'updated_at' => now(),
             ]);
@@ -306,6 +307,4 @@ class MemberController extends Controller
 
         return ApiResponse::success("Member status updated successfully.", $member, 200);
     }
-
-
 }

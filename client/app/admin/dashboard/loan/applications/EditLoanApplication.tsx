@@ -38,10 +38,48 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { approveLoanApplicationHandler } from '@/services/loanHandler'
 
+type LoanApprovalStatus = 'pending' | 'approved' | 'rejected'
+
 type ViewLoanApplicaionProps = {
     open: boolean
     onOpenChange: (openViewDialog: boolean) => void
     application: LoanApplication | null
+}
+
+type LoanApplicationRecord = LoanApplication & {
+    id?: number | string
+    application_no?: string | null
+    application_status?: string | null
+    admin_approval_status?: string | null
+    member_id?: string | null
+    member_name?: string | null
+    scheme_name?: string | null
+    interest_rate?: string | number | null
+    loan_amount?: string | number | null
+    tenure_months?: string | number | null
+    tenure_years?: string | number | null
+    start_date?: string | null
+    end_date?: string | null
+    created_at?: string | null
+    sanchalak_approvals_status?: string | null
+    guarantor_1_status?: string | null
+    guarantor_2_status?: string | null
+    guarantor_1_id?: string | null
+    guarantor_1_name?: string | null
+    guarantor_2_id?: string | null
+    guarantor_2_name?: string | null
+    adhaar_number?: string | null
+    bank_account_number?: string | null
+    annual_family_income?: string | number | null
+    adjustment_remark?: string | null
+    old_outstanding_amount?: string | number | null
+    previous_outstanding?: string | number | null
+    cash_disbursement_amount?: string | number | null
+    suggested_sanction_amount?: string | number | null
+    net_cash_amount?: string | number | null
+    sanctioned_amount?: string | number | null
+    loan_max_amount?: string | number | null
+    scheme_max_amount?: string | number | null
 }
 
 type DeductionItem = {
@@ -58,25 +96,41 @@ type ApproveLoanDeductionItem = {
 }
 
 type ApproveLoanApplicationPayload = {
-    application_status: 'pending' | 'approved' | 'rejected'
+    application_status: LoanApprovalStatus
+    admin_approval_status: LoanApprovalStatus
     start_date?: string | null
     sanctioned_amount?: number
     updated_by: string
     deductions?: ApproveLoanDeductionItem[]
 }
 
-const STATUS_OPTIONS = ['pending', 'approved', 'rejected']
+type DetailItemType = {
+    label: string
+    value: React.ReactNode
+    className?: string
+}
+
+const STATUS_OPTIONS: LoanApprovalStatus[] = ['pending', 'approved', 'rejected']
 
 const toNumber = (value: unknown) => {
     if (typeof value === 'number') return Number.isFinite(value) ? value : 0
 
     if (typeof value === 'string') {
-        const clean = value.replace(/,/g, '').trim()
+        const clean = value.replace(/,/g, '').replace(/₹/g, '').trim()
         const parsed = Number(clean)
         return Number.isFinite(parsed) ? parsed : 0
     }
 
     return 0
+}
+
+const toStatus = (value: unknown): LoanApprovalStatus => {
+    const status = String(value ?? 'pending').toLowerCase()
+
+    if (status === 'approved') return 'approved'
+    if (status === 'rejected') return 'rejected'
+
+    return 'pending'
 }
 
 const formatCurrency = (value: unknown) => {
@@ -123,18 +177,18 @@ const getStatusBadgeClass = (status?: string | null) => {
     const value = String(status ?? '').toLowerCase()
 
     if (value === 'approved') {
-        return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300'
     }
 
     if (value === 'pending') {
-        return 'border-amber-200 bg-amber-50 text-amber-700'
+        return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300'
     }
 
     if (value === 'rejected') {
-        return 'border-red-200 bg-red-50 text-red-700'
+        return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300'
     }
 
-    return 'border-slate-200 bg-slate-50 text-slate-700'
+    return 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
 }
 
 const getApprovalIcon = (status?: string | null) => {
@@ -142,14 +196,15 @@ const getApprovalIcon = (status?: string | null) => {
 
     if (value === 'approved') return <CheckCircle2 className="h-3.5 w-3.5" />
     if (value === 'rejected') return <XCircle className="h-3.5 w-3.5" />
+
     return <Clock3 className="h-3.5 w-3.5" />
 }
 
-const getTenureLabel = (application: LoanApplication | null) => {
+const getTenureLabel = (application: LoanApplicationRecord | null) => {
     if (!application) return '-'
 
-    const years = Number((application as any)?.tenure_years ?? 0)
-    const months = Number((application as any)?.tenure_months ?? 0)
+    const years = toNumber(application.tenure_years)
+    const months = toNumber(application.tenure_months)
 
     if (years > 0) return `${years} Year${years > 1 ? 's' : ''}`
     if (months > 0) return `${months} Month${months > 1 ? 's' : ''}`
@@ -268,10 +323,13 @@ export default function ViewLoanApplication({
     onOpenChange,
     application,
 }: ViewLoanApplicaionProps) {
-    const [activeTab, setActiveTab] = React.useState('view')
-    const [applicationStatus, setApplicationStatus] = React.useState('pending')
+    const app = application as LoanApplicationRecord | null
+
+    const [activeTab, setActiveTab] = React.useState<'view' | 'edit'>('view')
+    const [applicationStatus, setApplicationStatus] = React.useState<LoanApprovalStatus>('pending')
     const [openCalender, setOpenCalender] = React.useState(false)
     const [date, setDate] = React.useState<Date | undefined>(undefined)
+    const [sanctionedAmount, setSanctionedAmount] = React.useState('')
     const [editableDeductions, setEditableDeductions] = React.useState<DeductionItem[]>([])
     const [editingCalculationKey, setEditingCalculationKey] = React.useState<string | null>(null)
     const [editingAmountKey, setEditingAmountKey] = React.useState<string | null>(null)
@@ -287,39 +345,40 @@ export default function ViewLoanApplication({
             payload: ApproveLoanApplicationPayload
         }) => approveLoanApplicationHandler(application_id, payload),
 
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['loan-applications'] })
-            queryClient.invalidateQueries({ queryKey: ['loan-application-details'] })
-            queryClient.invalidateQueries({ queryKey: ['loan-emis'] })
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['loan-applications'] }),
+                queryClient.invalidateQueries({ queryKey: ['loan-application-details'] }),
+                queryClient.invalidateQueries({ queryKey: ['loan-emis'] }),
+                queryClient.invalidateQueries({ queryKey: ['loan-emi-schedules'] }),
+            ])
+
             onOpenChange(false)
         },
     })
 
     React.useEffect(() => {
-        setApplicationStatus(
-            String((application as any)?.application_status ?? 'pending').toLowerCase()
-        )
+        if (!app) return
 
-        setDate(
-            (application as any)?.start_date
-                ? new Date((application as any)?.start_date)
-                : undefined
-        )
-    }, [application])
+        setActiveTab('view')
+        setApplicationStatus(toStatus(app.application_status))
+        setDate(app.start_date ? new Date(app.start_date) : undefined)
+        setSanctionedAmount(String(toNumber(app.sanctioned_amount ?? app.loan_amount ?? 0)))
+    }, [app])
 
-    const loanAmount = toNumber((application as any)?.loan_amount ?? 0)
+    const loanAmount = toNumber(app?.loan_amount ?? 0)
 
     const prevOutstanding = toNumber(
-        (application as any)?.old_outstanding_amount ??
-        (application as any)?.previous_outstanding ??
+        app?.old_outstanding_amount ??
+        app?.previous_outstanding ??
         0
     )
 
     const suggestedSanctionAmount =
         toNumber(
-            (application as any)?.cash_disbursement_amount ??
-            (application as any)?.suggested_sanction_amount ??
-            (application as any)?.net_cash_amount
+            app?.cash_disbursement_amount ??
+            app?.suggested_sanction_amount ??
+            app?.net_cash_amount
         ) || loanAmount
 
     const deductions = useMemo(() => buildDeductions(loanAmount), [loanAmount])
@@ -334,6 +393,13 @@ export default function ViewLoanApplication({
         (sum, item) => sum + toNumber(item.amount),
         0
     )
+
+    const netDisbursement = Math.max(toNumber(sanctionedAmount) - totalDeductions, 0)
+
+    const isLoanApproved =
+        toStatus(app?.application_status) === 'approved' ||
+        toStatus(app?.admin_approval_status) === 'approved' ||
+        applicationStatus === 'approved'
 
     const handleDeductionAmountChange = (index: number, value: string) => {
         const cleanedValue = value.replace(/,/g, '')
@@ -377,17 +443,12 @@ export default function ViewLoanApplication({
         return `${year}-${month}-${day}`
     }
 
-    const buildPayload = (
-        status: 'pending' | 'approved' | 'rejected'
-    ): ApproveLoanApplicationPayload => {
+    const buildPayload = (status: LoanApprovalStatus): ApproveLoanApplicationPayload => {
         return {
             application_status: status,
+            admin_approval_status: status,
             start_date: formatDateForApi(date),
-            sanctioned_amount: Number(
-                (application as any)?.sanctioned_amount ??
-                (application as any)?.loan_amount ??
-                0
-            ),
+            sanctioned_amount: toNumber(sanctionedAmount || app?.loan_amount || 0),
             updated_by: 'Admin',
             deductions: editableDeductions.map((item) => ({
                 type: item.label,
@@ -397,173 +458,176 @@ export default function ViewLoanApplication({
         }
     }
 
-    const handleSubmitApplication = () => {
-        if (!application?.id) return
+    const handleApproveApplication = () => {
+        if (!app?.id || isLoanApproved) return
+
+        setApplicationStatus('approved')
 
         approveLoanApplicationMutation.mutate({
-            application_id: application.id,
-            payload: buildPayload(applicationStatus as 'pending' | 'approved' | 'rejected'),
+            application_id: app.id,
+            payload: buildPayload('approved'),
         })
     }
 
     const handleRejectApplication = () => {
-        if (!application?.id) return
+        if (!app?.id) return
+
+        setApplicationStatus('rejected')
 
         approveLoanApplicationMutation.mutate({
-            application_id: application.id,
+            application_id: app.id,
             payload: buildPayload('rejected'),
         })
     }
 
-    if (!application) return null
+    if (!app) return null
 
-    const loanSchemeDetails = [
+    const loanSchemeDetails: DetailItemType[] = [
         {
             label: 'Application No',
-            value: (application as any)?.application_no ?? '-',
+            value: app.application_no ?? '-',
         },
         {
             label: 'Scheme Name',
-            value: (application as any)?.scheme_name ?? '-',
+            value: app.scheme_name ?? '-',
         },
         {
             label: 'Loan Amount',
-            value: formatCurrency((application as any)?.loan_amount),
+            value: formatCurrency(app.loan_amount),
         },
         {
             label: 'Interest Rate',
-            value: `${(application as any)?.interest_rate ?? '-'}${(application as any)?.interest_rate ? '%' : ''}`,
+            value: `${app.interest_rate ?? '-'}${app.interest_rate ? '%' : ''}`,
         },
         {
             label: 'Tenure',
-            value: getTenureLabel(application),
+            value: getTenureLabel(app),
         },
         {
             label: 'Start Date',
-            value: formatDate((application as any)?.start_date),
+            value: formatDate(app.start_date),
         },
         {
             label: 'End Date',
-            value: formatDate((application as any)?.end_date),
+            value: formatDate(app.end_date),
         },
         {
             label: 'Created At',
-            value: formatDateTime((application as any)?.created_at),
+            value: formatDateTime(app.created_at),
         },
     ]
 
-    const importantInfo = [
+    const importantInfo: DetailItemType[] = [
         {
             label: 'Member ID',
-            value: (application as any)?.member_id ?? '-',
+            value: app.member_id ?? '-',
         },
         {
             label: 'Member Name',
-            value: (application as any)?.member_name ?? '-',
+            value: app.member_name ?? '-',
         },
         {
             label: 'Application Start Date',
-            value: formatDate((application as any)?.start_date),
+            value: formatDate(app.start_date),
         },
         {
             label: 'Application End Date',
-            value: formatDate((application as any)?.end_date),
+            value: formatDate(app.end_date),
         },
         {
             label: 'Sanchalak Approval',
-            value: <StatusValue status={(application as any)?.sanchalak_approvals_status} />,
+            value: <StatusValue status={app.sanchalak_approvals_status} />,
         },
         {
             label: 'Admin Approval Status',
-            value: <StatusValue status={(application as any)?.admin_approval_status} />,
+            value: <StatusValue status={app.admin_approval_status} />,
         },
         {
             label: 'Guarantor 1 Approval',
-            value: <StatusValue status={(application as any)?.guarantor_1_status} />,
+            value: <StatusValue status={app.guarantor_1_status} />,
         },
         {
             label: 'Guarantor 2 Approval',
-            value: <StatusValue status={(application as any)?.guarantor_2_status} />,
+            value: <StatusValue status={app.guarantor_2_status} />,
         },
         {
             label: 'Adhaar Number',
-            value: (application as any)?.adhaar_number ?? '-',
+            value: app.adhaar_number ?? '-',
         },
         {
             label: 'Bank Account Number',
-            value: (application as any)?.bank_account_number ?? '-',
+            value: app.bank_account_number ?? '-',
         },
         {
             label: 'Annual Family Income',
-            value: formatCurrency((application as any)?.annual_family_income),
+            value: formatCurrency(app.annual_family_income),
         },
         {
             label: 'Adjustment Remark',
-            value: (application as any)?.adjustment_remark ?? '-',
+            value: app.adjustment_remark ?? '-',
             className: 'sm:col-span-2 xl:col-span-2',
         },
     ]
 
-    const guarantorDetails = [
+    const guarantorDetails: DetailItemType[] = [
         {
             label: 'Guarantor 1 ID',
-            value: (application as any)?.guarantor_1_id ?? '-',
+            value: app.guarantor_1_id ?? '-',
         },
         {
             label: 'Guarantor 1 Name',
-            value: (application as any)?.guarantor_1_name ?? '-',
+            value: app.guarantor_1_name ?? '-',
         },
         {
             label: 'Guarantor 1 Approval',
-            value: <StatusValue status={(application as any)?.guarantor_1_status} />,
+            value: <StatusValue status={app.guarantor_1_status} />,
         },
         {
             label: 'Guarantor 2 ID',
-            value: (application as any)?.guarantor_2_id ?? '-',
+            value: app.guarantor_2_id ?? '-',
         },
         {
             label: 'Guarantor 2 Name',
-            value: (application as any)?.guarantor_2_name ?? '-',
+            value: app.guarantor_2_name ?? '-',
         },
         {
             label: 'Guarantor 2 Approval',
-            value: <StatusValue status={(application as any)?.guarantor_2_status} />,
+            value: <StatusValue status={app.guarantor_2_status} />,
         },
     ]
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-h-[88vh] overflow-y-auto rounded-xl border bg-background p-0 shadow-2xl sm:max-w-4xl [&>button]:hidden">
-                <DialogHeader className="border-b px-5 py-4">
+                <DialogHeader className="sticky top-0 z-10 border-b bg-background px-5 py-4">
                     <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                             <DialogTitle className="truncate text-base font-semibold">
-                                {String((application as any)?.application_no ?? 'Loan Application')}
+                                {String(app.application_no ?? 'Loan Application')}
                             </DialogTitle>
                             <p className="mt-1 text-xs font-semibold text-foreground">
-                                {String((application as any)?.member_name ?? '-')} |{' '}
-                                {String((application as any)?.member_id ?? '-')}
+                                {String(app.member_name ?? '-')} | {String(app.member_id ?? '-')}
                             </p>
                         </div>
 
-                        <StatusValue status={(application as any)?.application_status} />
+                        <StatusValue status={app.application_status} />
                     </div>
                 </DialogHeader>
 
                 <div className="px-5 py-4">
-                    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                    <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'view' | 'edit')} className="w-full">
                         <TabsList className="-mt-5 h-8 rounded-xl bg-muted/70 p-1">
                             <TabsTrigger
                                 value="view"
                                 className="rounded-lg px-3 text-[11px] font-medium transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
                             >
-                                Application
+                                View
                             </TabsTrigger>
                             <TabsTrigger
                                 value="edit"
                                 className="rounded-lg px-3 text-[11px] font-medium transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
                             >
-                                Manage application
+                                Edit
                             </TabsTrigger>
                         </TabsList>
 
@@ -578,10 +642,10 @@ export default function ViewLoanApplication({
                                     </div>
                                     <div className="mt-2 space-y-1">
                                         <p className="text-xs font-semibold text-foreground">
-                                            {String((application as any)?.member_name ?? '-')}
+                                            {String(app.member_name ?? '-')}
                                         </p>
                                         <p className="text-[11px] text-muted-foreground">
-                                            ID: {String((application as any)?.member_id ?? '-')}
+                                            ID: {String(app.member_id ?? '-')}
                                         </p>
                                     </div>
                                 </div>
@@ -595,10 +659,10 @@ export default function ViewLoanApplication({
                                     </div>
                                     <div className="mt-2 space-y-1">
                                         <p className="text-xs font-semibold text-foreground">
-                                            {formatCurrency((application as any)?.loan_amount)}
+                                            {formatCurrency(app.loan_amount)}
                                         </p>
                                         <p className="text-[11px] text-muted-foreground">
-                                            Tenure: {getTenureLabel(application)}
+                                            Tenure: {getTenureLabel(app)}
                                         </p>
                                     </div>
                                 </div>
@@ -612,10 +676,10 @@ export default function ViewLoanApplication({
                                     </div>
                                     <div className="mt-2 space-y-1">
                                         <p className="text-xs font-semibold capitalize text-foreground">
-                                            {String((application as any)?.application_status ?? '-')}
+                                            {String(app.application_status ?? '-')}
                                         </p>
                                         <p className="text-[11px] capitalize text-muted-foreground">
-                                            Admin: {String((application as any)?.admin_approval_status ?? '-')}
+                                            Admin: {String(app.admin_approval_status ?? '-')}
                                         </p>
                                     </div>
                                 </div>
@@ -646,7 +710,7 @@ export default function ViewLoanApplication({
                                             key={`${item.label}-${index}`}
                                             label={item.label}
                                             value={item.value}
-                                            className={(item as any)?.className ?? ''}
+                                            className={item.className ?? ''}
                                         />
                                     ))}
                                 </div>
@@ -675,7 +739,7 @@ export default function ViewLoanApplication({
                                     <div className="grid grid-cols-3 border-b bg-muted/40 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                                         <div>Deduction Type</div>
                                         <div>Calculation</div>
-                                        <div className="text-right">Amount (₹)</div>
+                                        <div className="text-right">Amount</div>
                                     </div>
 
                                     <div className="bg-background">
@@ -702,14 +766,30 @@ export default function ViewLoanApplication({
                                                 Total Deductions
                                             </div>
                                             <div className="text-right text-lg font-bold text-red-600">
-                                                {formatCurrency(
-                                                    deductions.reduce((sum, item) => sum + item.amount, 0)
-                                                )}
+                                                {formatCurrency(deductions.reduce((sum, item) => sum + item.amount, 0))}
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             </SectionCard>
+
+                            <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-background py-3">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="rounded-xl"
+                                    onClick={() => onOpenChange(false)}
+                                >
+                                    Close
+                                </Button>
+                                <Button
+                                    type="button"
+                                    className="rounded-xl"
+                                    onClick={() => setActiveTab('edit')}
+                                >
+                                    Edit Application
+                                </Button>
+                            </div>
                         </TabsContent>
 
                         <TabsContent value="edit" className="mt-0 space-y-4">
@@ -719,11 +799,7 @@ export default function ViewLoanApplication({
                                         Scheme Max Cap
                                     </p>
                                     <p className="mt-1 text-lg font-bold text-foreground">
-                                        {formatCurrency(
-                                            (application as any)?.loan_max_amount ??
-                                            (application as any)?.scheme_max_amount ??
-                                            500000
-                                        )}
+                                        {formatCurrency(app.loan_max_amount ?? app.scheme_max_amount ?? 500000)}
                                     </p>
                                 </div>
 
@@ -768,28 +844,30 @@ export default function ViewLoanApplication({
                                         <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700">
                                             Sanctioned Amount
                                         </p>
+                                        <p className="mt-1 text-[11px] text-muted-foreground">
+                                            This amount will be sent while approving or updating the application.
+                                        </p>
                                     </div>
 
                                     <Input
-                                        readOnly
-                                        value={formatCurrency(
-                                            (application as any)?.sanctioned_amount ??
-                                            (application as any)?.loan_amount ??
-                                            0
-                                        )}
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={sanctionedAmount}
+                                        onChange={(event) => setSanctionedAmount(event.target.value)}
                                         className="h-10 rounded-lg text-sm font-medium"
                                     />
                                 </div>
                             </div>
 
-                            <div className="rounded-xl border bg-slate-50/70 p-4">
+                            <div className="rounded-xl border bg-slate-50/70 p-4 dark:bg-slate-950/30">
                                 <div className="grid gap-3 md:grid-cols-3">
                                     <div className="space-y-1.5">
                                         <Label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                                             Loan Amount
                                         </Label>
                                         <div className="flex h-10 items-center rounded-lg border bg-background px-3 text-sm font-semibold text-foreground">
-                                            {formatCurrency((application as any)?.loan_amount)}
+                                            {formatCurrency(app.loan_amount)}
                                         </div>
                                     </div>
 
@@ -799,7 +877,7 @@ export default function ViewLoanApplication({
                                         </Label>
                                         <Select
                                             value={applicationStatus}
-                                            onValueChange={setApplicationStatus}
+                                            onValueChange={(value) => setApplicationStatus(toStatus(value))}
                                         >
                                             <SelectTrigger className="h-10 rounded-lg text-xs capitalize">
                                                 <SelectValue placeholder="Select status" />
@@ -856,11 +934,40 @@ export default function ViewLoanApplication({
                                 </div>
                             </div>
 
+                            <div className="grid gap-3 md:grid-cols-3">
+                                <div className="rounded-xl border bg-background p-3">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                                        Total Deductions
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-red-600">
+                                        {formatCurrency(totalDeductions)}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-xl border bg-background p-3">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                                        Net Disbursement
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-emerald-600">
+                                        {formatCurrency(netDisbursement)}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-xl border bg-background p-3">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                                        Current Status
+                                    </p>
+                                    <div className="mt-2">
+                                        <StatusValue status={applicationStatus} />
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="overflow-hidden rounded-xl border">
                                 <div className="grid grid-cols-3 border-b bg-muted/40 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                                     <div>Deduction Type</div>
                                     <div>Calculation</div>
-                                    <div className="text-right">Amount (₹)</div>
+                                    <div className="text-right">Amount</div>
                                 </div>
 
                                 <div className="bg-background">
@@ -887,15 +994,15 @@ export default function ViewLoanApplication({
                                                         <Input
                                                             autoFocus
                                                             value={item.calculation}
-                                                            onChange={(e) =>
+                                                            onChange={(event) =>
                                                                 handleDeductionCalculationChange(
                                                                     index,
-                                                                    e.target.value
+                                                                    event.target.value
                                                                 )
                                                             }
                                                             onBlur={() => setEditingCalculationKey(null)}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
+                                                            onKeyDown={(event) => {
+                                                                if (event.key === 'Enter') {
                                                                     setEditingCalculationKey(null)
                                                                 }
                                                             }}
@@ -917,7 +1024,7 @@ export default function ViewLoanApplication({
 
                                                 <div className="flex justify-end">
                                                     {fixed ? (
-                                                        <div className="flex h-9 w-37.5 items-center justify-end rounded-lg border bg-muted/40 px-3 text-xs font-medium text-foreground">
+                                                        <div className="flex h-9 w-[150px] items-center justify-end rounded-lg border bg-muted/40 px-3 text-xs font-medium text-foreground">
                                                             {Number(item.amount).toFixed(2)}
                                                         </div>
                                                     ) : isAmountEditing ? (
@@ -927,26 +1034,26 @@ export default function ViewLoanApplication({
                                                             step="0.01"
                                                             min="0"
                                                             value={item.amount}
-                                                            onChange={(e) =>
+                                                            onChange={(event) =>
                                                                 handleDeductionAmountChange(
                                                                     index,
-                                                                    e.target.value
+                                                                    event.target.value
                                                                 )
                                                             }
                                                             onBlur={() => setEditingAmountKey(null)}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
+                                                            onKeyDown={(event) => {
+                                                                if (event.key === 'Enter') {
                                                                     setEditingAmountKey(null)
                                                                 }
                                                             }}
-                                                            className="h-9 w-37.5 rounded-lg text-right text-xs"
+                                                            className="h-9 w-[150px] rounded-lg text-right text-xs"
                                                         />
                                                     ) : (
                                                         <div
                                                             onDoubleClick={() =>
                                                                 setEditingAmountKey(item.key)
                                                             }
-                                                            className="flex h-9 w-37.5 cursor-pointer items-center justify-end rounded-lg border bg-background px-3 text-xs font-medium text-foreground"
+                                                            className="flex h-9 w-[150px] cursor-pointer items-center justify-end rounded-lg border bg-background px-3 text-xs font-medium text-foreground"
                                                             title="Double click to edit"
                                                         >
                                                             {Number(item.amount).toFixed(2)}
@@ -971,7 +1078,7 @@ export default function ViewLoanApplication({
 
                             <Separator />
 
-                            <div className="flex items-center justify-end gap-2">
+                            <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t bg-background py-3">
                                 <Button
                                     type="button"
                                     variant="outline"
@@ -995,10 +1102,14 @@ export default function ViewLoanApplication({
                                 <Button
                                     type="button"
                                     className="rounded-xl"
-                                    onClick={handleSubmitApplication}
-                                    disabled={approveLoanApplicationMutation.isPending}
+                                    onClick={handleApproveApplication}
+                                    disabled={approveLoanApplicationMutation.isPending || isLoanApproved}
                                 >
-                                    {approveLoanApplicationMutation.isPending ? 'Submitting...' : 'Approve'}
+                                    {approveLoanApplicationMutation.isPending
+                                        ? 'Submitting...'
+                                        : isLoanApproved
+                                            ? 'Approved'
+                                            : 'Approve'}
                                 </Button>
                             </div>
                         </TabsContent>

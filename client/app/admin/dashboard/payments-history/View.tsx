@@ -30,10 +30,125 @@ import {
 import { formatApiDate } from '@/lib/formateApiDate'
 import { approvePaymentStatusHandler } from '@/services/paymentHistoryHandler'
 
-interface ViewProps {
+type PaymentProof = {
+    file_url?: string | null
+    file_name?: string | null
+    file_type?: string | null
+    url?: string | null
+}
+
+type ApplicationBreakdownItem = {
+    title?: string | null
+    detail?: string | null
+    member_name?: string | null
+    amount?: number | string | null
+    application_no?: string | null
+    tenure?: string | null
+    status?: string | null
+    payment_mode?: string | null
+    date?: string | null
+    due_date?: string | null
+}
+
+type ApplicationDetails = {
+    title?: string | null
+    detail?: string | null
+    member_name?: string | null
+    amount?: number | string | null
+    application_no?: string | null
+    tenure?: string | null
+    payment_mode?: string | null
+    breakdown?: ApplicationBreakdownItem[] | null
+}
+
+type PaymentDetails = {
+    member_name?: string | null
+    member_id?: string | null
+    payment_mode?: string | null
+    status?: string | null
+    total_amount?: number | string | null
+    date_of_payment?: string | null
+    reference_trn?: string | null
+    proof_file?: string | null
+    proof_file_url?: string | null
+    created_at?: string | null
+    remark?: string | null
+    utr?: string | null
+}
+
+type MemberDetails = {
+    member_id?: string | null
+    member_name?: string | null
+}
+
+type InstallmentDetails = {
+    date?: string | null
+    amount?: number | string | null
+    status?: string | null
+    updated_by?: string | null
+}
+
+type PaymentHistoryRow = {
+    id?: number | string | null
+    account_management_id?: number | string | null
+    member_id?: string | null
+    member_name?: string | null
+    member?: MemberDetails | null
+    submitted_on?: string | null
+    submitted_time?: string | null
+    date_of_payment?: string | null
+    date_paid?: string | null
+    amount?: number | string | null
+    total_amount?: number | string | null
+    payment_mode?: string | null
+    proof_file?: string | null
+    proof_file_url?: string | null
+    proof_file_name?: string | null
+    reference_trn?: string | null
+    remark?: string | null
+    status?: string | null
+    account_management_status?: string | null
+    application_status?: string | null
+    installment_status?: string | null
+    created_by?: string | null
+    created_at?: string | null
+    submitted_at?: string | null
+    application_no?: string | null
+    source_type?: string | null
+    schemeLabel?: string | null
+    scheme?: string | null
+    title?: string | null
+    application_details?: ApplicationDetails | null
+    payment_details?: PaymentDetails | null
+    proof?: PaymentProof | null
+    installment?: InstallmentDetails | null
+    payments?: PaymentHistoryRow[]
+    raw?: PaymentHistoryRow
+    utr?: string | null
+    is_approved?: boolean
+    approve_disabled?: boolean
+    can_approve?: boolean
+}
+
+type ViewProps = {
     open: boolean
     onOpenChange: (open: boolean) => void
-    data: any
+    data: PaymentHistoryRow | null
+}
+
+type BreakdownRow = {
+    key: string
+    date: string
+    applicationNo: string
+    detail: string
+    amount: number | string | null
+    status: string
+    mode: string
+}
+
+type ApprovalItem = {
+    id: number
+    application_no: string
 }
 
 const toDate = (value: unknown) => {
@@ -87,22 +202,35 @@ const getStatusTone = (status: string | null | undefined) => {
     return 'border-slate-200 bg-slate-100 text-slate-700'
 }
 
-const getSafeValue = (...values: unknown[]) => {
+const getSafeValue = (...values: unknown[]): string | null => {
     for (const value of values) {
         if (value === null || value === undefined) continue
+        if (typeof value === 'object') continue
         const stringValue = String(value).trim()
         if (stringValue) return stringValue
     }
     return null
 }
 
-const getNumberOrStringValue = (...values: unknown[]) => {
+const getNumberOrStringValue = (...values: unknown[]): number | string | null => {
     for (const value of values) {
         if (value === null || value === undefined) continue
-        if (typeof value === 'number') return value
-        const stringValue = String(value).trim()
-        if (stringValue) return value
+
+        if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : null
+        }
+
+        if (typeof value === 'string') {
+            const stringValue = value.trim()
+            if (stringValue) return stringValue
+            continue
+        }
+
+        if (typeof value === 'bigint') {
+            return value.toString()
+        }
     }
+
     return null
 }
 
@@ -126,6 +254,90 @@ const formatPaymentMode = (value: unknown) => {
         .replace(/\s*\(\s*cash\s+paid\s*\)\s*/gi, '')
         .replace(/\s{2,}/g, ' ')
         .trim()
+}
+
+const isMemberFundBreakdownItem = (title: unknown) => {
+    const normalizedTitle = String(title ?? '').trim().toLowerCase()
+
+    return (
+        normalizedTitle.includes('member joining') ||
+        normalizedTitle.includes('joining fee') ||
+        normalizedTitle.includes('share capital') ||
+        normalizedTitle.includes('emergency fund')
+    )
+}
+
+const getBreakdownItemStatus = (
+    item: ApplicationBreakdownItem,
+    fallbackStatus: unknown
+) => {
+    const title = getSafeValue(item?.title, item?.detail)
+
+    if (isMemberFundBreakdownItem(title)) {
+        return 'paid'
+    }
+
+    return getSafeValue(item?.status, fallbackStatus) ?? '-'
+}
+
+const isApprovedLikeStatus = (value: unknown) => {
+    const normalizedValue = String(value ?? '').trim().toLowerCase()
+
+    return (
+        normalizedValue === 'approved' ||
+        normalizedValue === 'paid' ||
+        normalizedValue === 'completed'
+    )
+}
+
+const isApprovePaymentDisabled = (
+    resolved: PaymentHistoryRow | null,
+    groupedPayments: PaymentHistoryRow[]
+) => {
+    if (!resolved) return true
+
+    if (resolved.approve_disabled === true) return true
+    if (resolved.is_approved === true) return true
+    if (resolved.can_approve === false) return true
+
+    const raw = resolved.raw ?? null
+
+    if (
+        isApprovedLikeStatus(resolved.application_status) ||
+        isApprovedLikeStatus(resolved.status) ||
+        isApprovedLikeStatus(resolved.account_management_status) ||
+        isApprovedLikeStatus(resolved.installment_status) ||
+        isApprovedLikeStatus(resolved.installment?.status) ||
+        isApprovedLikeStatus(resolved.payment_details?.status) ||
+        isApprovedLikeStatus(raw?.application_status) ||
+        isApprovedLikeStatus(raw?.status) ||
+        isApprovedLikeStatus(raw?.account_management_status) ||
+        isApprovedLikeStatus(raw?.installment_status) ||
+        isApprovedLikeStatus(raw?.installment?.status) ||
+        isApprovedLikeStatus(raw?.payment_details?.status)
+    ) {
+        return true
+    }
+
+    return groupedPayments.some((payment) => {
+        return (
+            payment.approve_disabled === true ||
+            payment.is_approved === true ||
+            payment.can_approve === false ||
+            isApprovedLikeStatus(payment.application_status) ||
+            isApprovedLikeStatus(payment.status) ||
+            isApprovedLikeStatus(payment.account_management_status) ||
+            isApprovedLikeStatus(payment.installment_status) ||
+            isApprovedLikeStatus(payment.installment?.status) ||
+            isApprovedLikeStatus(payment.payment_details?.status) ||
+            isApprovedLikeStatus(payment.raw?.application_status) ||
+            isApprovedLikeStatus(payment.raw?.status) ||
+            isApprovedLikeStatus(payment.raw?.account_management_status) ||
+            isApprovedLikeStatus(payment.raw?.installment_status) ||
+            isApprovedLikeStatus(payment.raw?.installment?.status) ||
+            isApprovedLikeStatus(payment.raw?.payment_details?.status)
+        )
+    })
 }
 
 const StatCard = ({
@@ -244,7 +456,6 @@ function ProofPreviewDialog({
     open,
     onOpenChange,
     proofFileUrl,
-    proofFileName,
 }: {
     open: boolean
     onOpenChange: (open: boolean) => void
@@ -347,57 +558,56 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
 
     const groupedPayments = Array.isArray(resolved?.payments) ? resolved.payments : []
     const latestGroupedPayment = groupedPayments.length > 0 ? groupedPayments[groupedPayments.length - 1] : null
-    const firstProofPayment = groupedPayments.find(
-        (payment: any) =>
-            getSafeValue(
-                payment?.proof_file_url,
-                payment?.proof_file,
-                payment?.proof?.file_url,
-                payment?.raw?.proof_file_url,
-                payment?.raw?.proof_file
-            )
+    const firstProofPayment = groupedPayments.find((payment) =>
+        getSafeValue(
+            payment?.proof_file_url,
+            payment?.proof_file,
+            payment?.proof?.file_url,
+            payment?.raw?.proof_file_url,
+            payment?.raw?.proof_file
+        )
     )
+
+    const approvePaymentDisabled = isApprovePaymentDisabled(resolved, groupedPayments)
 
     const approvePaymentMutation = useMutation({
         mutationFn: async () => {
-            const approvalItems = new Map<string, { id: number; application_no: string }>()
+            if (approvePaymentDisabled) {
+                throw new Error('Payment is already approved')
+            }
+
+            const approvalItems = new Map<string, ApprovalItem>()
+
+            const addApprovalItem = (payment: PaymentHistoryRow | null | undefined) => {
+                if (!payment) return
+
+                const id = Number(payment.account_management_id ?? payment.id ?? 0)
+                const applicationNo =
+                    getSafeValue(
+                        payment.application_no,
+                        payment.application_details?.application_no,
+                        payment.raw?.application_no,
+                        payment.raw?.application_details?.application_no
+                    ) ?? ''
+
+                if (id <= 0) return
+
+                approvalItems.set(`${id}__${applicationNo || 'member_fund'}`, {
+                    id,
+                    application_no: applicationNo,
+                })
+            }
 
             if (groupedPayments.length > 0) {
                 for (const payment of groupedPayments) {
-                    const id = Number(payment?.account_management_id ?? payment?.id ?? 0)
-                    const applicationNo =
-                        getSafeValue(
-                            payment?.application_no,
-                            payment?.application_details?.application_no
-                        ) ?? ''
-
-                    if (id > 0 && applicationNo) {
-                        approvalItems.set(`${id}__${applicationNo}`, {
-                            id,
-                            application_no: applicationNo,
-                        })
-                    }
+                    addApprovalItem(payment)
                 }
             } else {
-                const id = Number(resolved?.account_management_id ?? resolved?.id ?? 0)
-                const applicationNo =
-                    getSafeValue(
-                        resolved?.application_no,
-                        resolved?.application_details?.application_no,
-                        resolved?.raw?.application_no,
-                        resolved?.raw?.application_details?.application_no
-                    ) ?? ''
-
-                if (id > 0 && applicationNo) {
-                    approvalItems.set(`${id}__${applicationNo}`, {
-                        id,
-                        application_no: applicationNo,
-                    })
-                }
+                addApprovalItem(resolved)
             }
 
             if (!approvalItems.size) {
-                throw new Error('Application number not found')
+                throw new Error('Payment record not found')
             }
 
             return Promise.all(
@@ -429,132 +639,133 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
         )
     }
 
-    const raw = resolved?.raw ?? {}
-    const proof = resolved?.proof ?? {}
-    const paymentDetails = raw?.payment_details ?? {}
+    const raw = resolved.raw ?? {}
+    const proof = resolved.proof ?? {}
+    const paymentDetails = raw.payment_details ?? {}
     const applicationDetails =
-        resolved?.application_details ??
-        raw?.application_details ??
+        resolved.application_details ??
+        raw.application_details ??
         latestGroupedPayment?.application_details ??
         {}
 
     const memberName =
         getSafeValue(
-            resolved?.member_name,
-            resolved?.member?.member_name,
-            raw?.member_name,
+            resolved.member_name,
+            resolved.member?.member_name,
+            raw.member_name,
             latestGroupedPayment?.member_name,
-            applicationDetails?.member_name,
-            paymentDetails?.member_name
+            applicationDetails.member_name,
+            paymentDetails.member_name
         ) ?? '-'
 
     const memberId =
         getSafeValue(
-            resolved?.member_id,
-            resolved?.member?.member_id,
-            raw?.member_id,
+            resolved.member_id,
+            resolved.member?.member_id,
+            raw.member_id,
             latestGroupedPayment?.member_id,
-            paymentDetails?.member_id
+            paymentDetails.member_id
         ) ?? '-'
 
     const groupedTotalAmount = groupedPayments.reduce(
-        (sum: number, payment: any) => sum + Number(payment?.amount ?? 0),
+        (sum, payment) => sum + Number(payment.amount ?? 0),
         0
     )
 
     const totalAmount = getNumberOrStringValue(
-        resolved?.total_amount,
+        resolved.total_amount,
         groupedPayments.length > 0 ? groupedTotalAmount : null,
-        resolved?.amount,
-        raw?.total_amount,
-        raw?.amount,
-        applicationDetails?.amount,
-        paymentDetails?.total_amount
+        resolved.amount,
+        raw.total_amount,
+        raw.amount,
+        applicationDetails.amount,
+        paymentDetails.total_amount
     )
 
     const status =
         getSafeValue(
-            resolved?.status,
-            raw?.status,
+            resolved.status,
+            raw.status,
             latestGroupedPayment?.status,
-            paymentDetails?.status
+            paymentDetails.status
         ) ?? '-'
 
     const datePaid = getSafeValue(
-        resolved?.date_paid,
-        resolved?.date_of_payment,
-        resolved?.submitted_on,
+        resolved.date_paid,
+        resolved.date_of_payment,
+        resolved.submitted_on,
         latestGroupedPayment?.date_paid,
         latestGroupedPayment?.date_of_payment,
         latestGroupedPayment?.submitted_on,
         latestGroupedPayment?.submitted_at,
-        raw?.date_of_payment,
-        raw?.date_paid,
-        raw?.created_at,
-        paymentDetails?.date_of_payment
+        raw.date_of_payment,
+        raw.date_paid,
+        raw.created_at,
+        paymentDetails.date_of_payment
     )
 
     const paymentMode =
         getSafeValue(
-            resolved?.payment_mode,
-            raw?.payment_mode,
+            resolved.payment_mode,
+            raw.payment_mode,
             latestGroupedPayment?.payment_mode,
-            applicationDetails?.payment_mode,
-            paymentDetails?.payment_mode
+            applicationDetails.payment_mode,
+            paymentDetails.payment_mode
         ) ?? '-'
 
     const remark =
         getSafeValue(
-            resolved?.remark,
-            raw?.remark,
+            resolved.remark,
+            raw.remark,
             latestGroupedPayment?.remark,
-            paymentDetails?.remark
+            paymentDetails.remark
         ) ?? 'No remark added'
 
     const referenceTrn =
         getSafeValue(
-            resolved?.reference_trn,
-            raw?.reference_trn,
+            resolved.reference_trn,
+            raw.reference_trn,
             latestGroupedPayment?.reference_trn,
-            raw?.utr,
-            paymentDetails?.reference_trn
+            raw.utr,
+            paymentDetails.reference_trn,
+            paymentDetails.utr
         ) ?? '-'
 
     const submittedAt =
         getSafeValue(
-            resolved?.submitted_at,
+            resolved.submitted_at,
             latestGroupedPayment?.submitted_at,
             latestGroupedPayment?.created_at,
-            raw?.submitted_at,
-            raw?.created_at,
-            paymentDetails?.created_at,
-            resolved?.created_at
+            raw.submitted_at,
+            raw.created_at,
+            paymentDetails.created_at,
+            resolved.created_at
         ) ?? '-'
 
     const proofFileUrl =
         getSafeValue(
-            resolved?.proof_file_url,
-            resolved?.proof_file,
-            proof?.file_url,
-            proof?.url,
+            resolved.proof_file_url,
+            resolved.proof_file,
+            proof.file_url,
+            proof.url,
             firstProofPayment?.proof_file_url,
             firstProofPayment?.proof_file,
             firstProofPayment?.proof?.file_url,
-            raw?.proof_file_url,
-            raw?.proof_file,
-            raw?.proof?.file_url,
-            raw?.payment_details?.proof_file,
-            raw?.payment_details?.proof_file_url
+            raw.proof_file_url,
+            raw.proof_file,
+            raw.proof?.file_url,
+            raw.payment_details?.proof_file,
+            raw.payment_details?.proof_file_url
         ) ?? null
 
     const proofFileName =
         getSafeValue(
-            resolved?.proof_file_name,
-            proof?.file_name,
+            resolved.proof_file_name,
+            proof.file_name,
             firstProofPayment?.proof_file_name,
             firstProofPayment?.proof?.file_name,
-            raw?.proof_file_name,
-            raw?.proof?.file_name
+            raw.proof_file_name,
+            raw.proof?.file_name
         ) ??
         (proofFileUrl
             ? proofFileUrl.split('?')[0].split('/').pop() ?? null
@@ -565,66 +776,112 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
 
     const schemeHeading =
         getSafeValue(
-            resolved?.schemeLabel,
-            resolved?.scheme,
+            resolved.schemeLabel,
+            resolved.scheme,
             latestGroupedPayment?.application_details?.title,
             latestGroupedPayment?.title,
-            applicationDetails?.title
+            applicationDetails.title
         ) ?? 'Payment Details'
 
-    const breakdownRows = groupedPayments.length > 0
-        ? groupedPayments.map((payment: any, index: number) => ({
-            key: `${payment?.account_management_id ?? payment?.id ?? 'payment'}-${payment?.application_no ?? payment?.application_details?.application_no ?? index}`,
-            date:
-                getSafeValue(
-                    payment?.date_of_payment,
-                    payment?.submitted_on,
-                    payment?.submitted_at
-                ) ?? '-',
-            applicationNo:
-                getSafeValue(
-                    payment?.application_no,
-                    payment?.application_details?.application_no
-                ) ?? '-',
-            amount: getNumberOrStringValue(
-                payment?.amount,
-                payment?.application_details?.amount
-            ),
-            status:
-                getSafeValue(
-                    payment?.status
-                ) ?? '-',
-            mode: formatPaymentMode(
-                getSafeValue(
-                    payment?.payment_mode
-                ) ?? paymentMode
-            ),
-        }))
-        : [
-            {
-                key: 'single-payment-row',
+    const applicationBreakdown = Array.isArray(applicationDetails.breakdown)
+        ? applicationDetails.breakdown
+        : []
+
+    const breakdownRows: BreakdownRow[] = applicationBreakdown.length > 0
+        ? applicationBreakdown.map((item, index) => {
+            const detail = getSafeValue(item.title, item.detail) ?? 'Payment'
+
+            return {
+                key: `breakdown-${index}-${detail}`,
                 date:
                     getSafeValue(
-                        resolved?.date_of_payment,
-                        resolved?.submitted_on,
-                        resolved?.submitted_at
+                        item.date,
+                        item.due_date,
+                        resolved.date_of_payment,
+                        resolved.submitted_on,
+                        resolved.submitted_at
                     ) ?? '-',
                 applicationNo:
                     getSafeValue(
-                        resolved?.application_no,
-                        applicationDetails?.application_no
+                        item.application_no
                     ) ?? '-',
+                detail,
                 amount: getNumberOrStringValue(
-                    resolved?.amount,
-                    applicationDetails?.amount
+                    item.amount
+                ),
+                status: getBreakdownItemStatus(item, resolved.status),
+                mode: formatPaymentMode(
+                    getSafeValue(
+                        item.payment_mode,
+                        resolved.payment_mode
+                    ) ?? paymentMode
+                ),
+            }
+        })
+        : groupedPayments.length > 0
+            ? groupedPayments.map((payment, index) => ({
+                key: `${payment.account_management_id ?? payment.id ?? 'payment'}-${payment.application_no ?? payment.application_details?.application_no ?? index}`,
+                date:
+                    getSafeValue(
+                        payment.date_of_payment,
+                        payment.submitted_on,
+                        payment.submitted_at
+                    ) ?? '-',
+                applicationNo:
+                    getSafeValue(
+                        payment.application_no,
+                        payment.application_details?.application_no
+                    ) ?? '-',
+                detail:
+                    getSafeValue(
+                        payment.application_details?.title,
+                        payment.title
+                    ) ?? 'Payment',
+                amount: getNumberOrStringValue(
+                    payment.amount,
+                    payment.application_details?.amount
                 ),
                 status:
                     getSafeValue(
-                        resolved?.status
+                        payment.status
                     ) ?? '-',
-                mode: formatPaymentMode(paymentMode),
-            },
-        ]
+                mode: formatPaymentMode(
+                    getSafeValue(
+                        payment.payment_mode
+                    ) ?? paymentMode
+                ),
+            }))
+            : [
+                {
+                    key: 'single-payment-row',
+                    date:
+                        getSafeValue(
+                            resolved.date_of_payment,
+                            resolved.submitted_on,
+                            resolved.submitted_at
+                        ) ?? '-',
+                    applicationNo:
+                        getSafeValue(
+                            resolved.application_no,
+                            applicationDetails.application_no
+                        ) ?? '-',
+                    detail:
+                        getSafeValue(
+                            applicationDetails.title,
+                            applicationDetails.detail,
+                            resolved.title
+                        ) ?? 'Payment',
+                    amount: getNumberOrStringValue(
+                        resolved.amount,
+                        applicationDetails.amount
+                    ),
+                    status:
+                        getSafeValue(
+                            resolved.status
+                        ) ?? '-',
+                    mode: formatPaymentMode(paymentMode),
+                },
+            ]
 
     return (
         <>
@@ -696,7 +953,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                             />
 
                                             <div className='overflow-x-auto'>
-                                                <table className='w-full min-w-140'>
+                                                <table className='w-full min-w-160'>
                                                     <thead className='bg-slate-50'>
                                                         <tr className='border-b border-slate-200'>
                                                             <th className='px-3 py-2 text-left text-[11px] font-semibold text-slate-500'>
@@ -704,6 +961,9 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                                             </th>
                                                             <th className='px-3 py-2 text-left text-[11px] font-semibold text-slate-500'>
                                                                 Application No
+                                                            </th>
+                                                            <th className='px-3 py-2 text-left text-[11px] font-semibold text-slate-500'>
+                                                                Detail
                                                             </th>
                                                             <th className='px-3 py-2 text-left text-[11px] font-semibold text-slate-500'>
                                                                 Amount
@@ -717,7 +977,7 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        {breakdownRows.map((row: any) => (
+                                                        {breakdownRows.map((row) => (
                                                             <tr
                                                                 key={row.key}
                                                                 className='border-b border-slate-100 align-middle last:border-b-0'
@@ -727,6 +987,9 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                                                                 </td>
                                                                 <td className='px-3 py-3 text-[13px] text-slate-700'>
                                                                     {row.applicationNo}
+                                                                </td>
+                                                                <td className='px-3 py-3 text-[13px] font-medium text-slate-800'>
+                                                                    {row.detail}
                                                                 </td>
                                                                 <td className='px-3 py-3 text-[13px] font-semibold text-slate-900'>
                                                                     ₹ {formatCurrency(row.amount)}
@@ -853,13 +1116,15 @@ export default function View({ open, onOpenChange, data }: ViewProps) {
                             variant='default'
                             className='rounded-xl text-[13px]'
                             onClick={() => approvePaymentMutation.mutate()}
-                            disabled={approvePaymentMutation.isPending}
+                            disabled={approvePaymentMutation.isPending || approvePaymentDisabled}
                         >
                             {approvePaymentMutation.isPending ? (
                                 <>
                                     <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                                     Approving...
                                 </>
+                            ) : approvePaymentDisabled ? (
+                                'Approved'
                             ) : (
                                 'Approve payment'
                             )}

@@ -12,7 +12,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { GalleryVerticalEndIcon, BookOpenIcon, LayoutDashboard, Users, BanknoteArrowUp, ScrollText, ClockFading, Wallet, HandCoins, Images, ChartNoAxesCombined, TimerReset, Blocks, NotebookPen, Workflow, ReceiptIndianRupee, Upload } from "lucide-react"
+import {  BookOpenIcon, LayoutDashboard, Users, BanknoteArrowUp, ScrollText, ClockFading, Wallet, HandCoins, Images, ChartNoAxesCombined, TimerReset, Blocks, NotebookPen, Workflow, ReceiptIndianRupee, Upload } from "lucide-react"
 import { AuditReports } from "./nav-auditReport"
 import { SystemNav } from "./nav-system"
 
@@ -24,10 +24,7 @@ const data = {
   teams: [
     {
       name: "BSNPM",
-      logo: (
-        <GalleryVerticalEndIcon
-        />
-      ),
+      logo:"bsnpm.png", 
       plan: "Co-Oprative Socity",
     },
   ],

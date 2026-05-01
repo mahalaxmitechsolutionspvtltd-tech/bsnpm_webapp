@@ -1,20 +1,34 @@
-import { PaymentHistoryDetailsResponse, PaymentHistoryDialogItem, PaymentHistoryListResponse, PaymentHistoryTableItem } from "@/types/paymentsTypes"
+
 import axios from "axios"
 
 
 const URI = process.env.NEXT_PUBLIC_API_BASE_URL
+type PaymentHistoryStatusFilter = 'pending' | 'approved'
 
-export const getPaymentHistoryHandler = async (): Promise<PaymentHistoryTableItem[]> => {
-    const response = await axios.get<PaymentHistoryListResponse>(
-        `${URI}/api/v1/payment-history`, {
-        headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
+export type GetPaymentHistoryParams = {
+    status?: PaymentHistoryStatusFilter
+    page?: number
+    per_page?: number
+    member_id?: string
+    application_no?: string
+}
+
+export const getPaymentHistoryHandler = async (params: GetPaymentHistoryParams = {}) => {
+    const response = await axios.get(`${URI}/api/v1/payment-history`, {
+        params: {
+            status: params.status ?? 'pending',
+            page: params.page,
+            per_page: params.per_page,
+            member_id: params.member_id,
+            application_no: params.application_no,
         },
-        withCredentials: true
-    }
-    )
-    return Array.isArray(response.data?.data) ? response.data.data : []
+        headers:{
+            'Content-Type':'application/json'
+        },
+        withCredentials:true
+    })
+
+    return response.data
 }
 
 export const approvePaymentStatusHandler = async (
