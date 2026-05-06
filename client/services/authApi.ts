@@ -1,10 +1,8 @@
 import { AdminLoginType, SanchalakLoginType } from "@/types/auth/loginTypes"
 import {
-    AdminAuthUser,
     apiClient,
     AuthUser,
     refreshAccessToken,
-    SanchalakAuthUser,
 } from "@/lib/api-client"
 
 export type UserType = "admin" | "sanchalaka" | null
@@ -16,7 +14,7 @@ export type AdminLoginResponse = {
     user_type: "admin"
     access_token: string
     expires_in: number
-    data: AdminAuthUser
+    data: AuthUser
 }
 
 export type SanchalakLoginResponse = {
@@ -26,7 +24,7 @@ export type SanchalakLoginResponse = {
     user_type: "sanchalaka"
     access_token: string
     expires_in: number
-    data: SanchalakAuthUser
+    data: AuthUser
 }
 
 export type RefreshLoginResponse = {
