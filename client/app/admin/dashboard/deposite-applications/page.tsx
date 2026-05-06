@@ -136,8 +136,8 @@ const defaultValueFormatter = (
 }
 
 const depositeApplicationsTableTheme = themeQuartz.withParams({
-    borderRadius: 10,
-    wrapperBorderRadius: 10,
+    borderRadius: 5.6,
+    wrapperBorderRadius: 5.6,
     headerHeight: 42,
     rowHeight: 48,
     fontSize: 13,
@@ -633,6 +633,28 @@ export default function DepositeApplications() {
     return (
         <>
             <style jsx global>{`
+                .deposite-applications-ag-grid {
+                    border-top-left-radius: 0 !important;
+                    border-top-right-radius: 0 !important;
+                    border-bottom-left-radius: 5.6px !important;
+                    border-bottom-right-radius: 5.6px !important;
+                }
+
+                .deposite-applications-ag-grid .ag-root-wrapper,
+                .deposite-applications-ag-grid .ag-root,
+                .deposite-applications-ag-grid .ag-header,
+                .deposite-applications-ag-grid .ag-header-viewport,
+                .deposite-applications-ag-grid .ag-header-container {
+                    border-top-left-radius: 0 !important;
+                    border-top-right-radius: 0 !important;
+                }
+
+                .deposite-applications-ag-grid .ag-root-wrapper,
+                .deposite-applications-ag-grid .ag-root {
+                    border-bottom-left-radius: 5.6px !important;
+                    border-bottom-right-radius: 5.6px !important;
+                }
+
                 .deposite-applications-ag-grid .ag-body-horizontal-scroll,
                 .deposite-applications-ag-grid .ag-body-vertical-scroll {
                     display: none !important;
@@ -783,7 +805,7 @@ export default function DepositeApplications() {
                         </div>
                     </div>
 
-                    <div className="deposite-applications-ag-grid h-[640px] w-full overflow-hidden">
+                    <div className="deposite-applications-ag-grid h-160 w-full overflow-hidden">
                         <AgGridReact<DepositApplication>
                             theme={depositeApplicationsTableTheme}
                             rowData={filteredApplications}

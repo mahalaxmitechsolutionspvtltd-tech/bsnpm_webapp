@@ -1,19 +1,19 @@
-import axios from 'axios'
-import { GetTrialBalanceParams, TrialBalanceApiResponse, TrialBalanceData } from '@/types/trialBalanceTypes'
-
-const URI = process.env.NEXT_PUBLIC_API_BASE_URL
+import { apiClient } from "@/lib/api-client"
+import {
+    GetTrialBalanceParams,
+    TrialBalanceApiResponse,
+    TrialBalanceData,
+} from "@/types/trialBalanceTypes"
 
 export const getTrialBalanceHandler = async (
     params: GetTrialBalanceParams = {}
 ): Promise<TrialBalanceData> => {
-    const response = await axios.get<TrialBalanceApiResponse>(`${URI}/api/v1/get-trial-balance`, {
-        params,
-        headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-        },
-        withCredentials: true,
-    })
+    const response = await apiClient.get<TrialBalanceApiResponse>(
+        "/api/v1/get-trial-balance",
+        {
+            params,
+        }
+    )
 
     return response.data.data
 }

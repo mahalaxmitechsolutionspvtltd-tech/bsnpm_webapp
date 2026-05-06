@@ -1,37 +1,32 @@
-import { DashboardOverviewFilters, DashboardOverviewResponse } from "@/types/dashboardTypes"
-import axios from "axios"
-
-const URI = process.env.NEXT_PUBLIC_API_BASE_URL
-
+import { apiClient } from "@/lib/api-client"
+import {
+    DashboardOverviewFilters,
+    DashboardOverviewResponse,
+} from "@/types/dashboardTypes"
 
 export const getDashboardOverviewHandler = async (
-  filters?: DashboardOverviewFilters
+    filters?: DashboardOverviewFilters
 ): Promise<DashboardOverviewResponse["data"]> => {
-  const params: Record<string, string | number> = {}
+    const params: Record<string, string | number> = {}
 
-  if (filters?.financial_year) {
-    params.financial_year = filters.financial_year
-  }
-
-  if (filters?.month !== undefined && filters?.month !== null && filters?.month !== "") {
-    params.month = filters.month
-  }
-
-  if (filters?.year !== undefined && filters?.year !== null && filters?.year !== "") {
-    params.year = filters.year
-  }
-
-  const response = await axios.get<DashboardOverviewResponse>(
-    `${URI}/api/v1/dashboard/overview`,
-    {
-      params,
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      withCredentials: true,
+    if (filters?.financial_year) {
+        params.financial_year = filters.financial_year
     }
-  )
 
-  return response.data.data
+    if (filters?.month !== undefined && filters?.month !== null && filters?.month !== "") {
+        params.month = filters.month
+    }
+
+    if (filters?.year !== undefined && filters?.year !== null && filters?.year !== "") {
+        params.year = filters.year
+    }
+
+    const response = await apiClient.get<DashboardOverviewResponse>(
+        "/api/v1/dashboard/overview",
+        {
+            params,
+        }
+    )
+
+    return response.data.data
 }

@@ -281,147 +281,155 @@ class DepositeController extends Controller
         }
     }
 
-
-    // Approve the deposite application status
     public function updateDepositeApplicationStatus(Request $request, $application_id)
-{
-    $validator = Validator::make($request->all(), [
-        'status' => 'required|string|in:pending,approved,rejected,active,inprogress,completed,closed,withdrawn',
-        'updated_by' => 'nullable|string|max:100',
-    ]);
+    {
+        $validator = Validator::make($request->all(), [
+            'status' => 'required|string|in:pending,approved,rejected,active,inprogress,completed,closed,withdrawn',
+            'updated_by' => 'nullable|string|max:100',
+        ]);
 
-    if ($validator->fails()) {
-        return ApiResponse::error(
-            'Validation failed',
-            $validator->errors(),
-            422
-        );
-    }
-
-    $application = DepositApplication::where('id', $application_id)->first();
-
-    if (!$application) {
-        return ApiResponse::error('Application not found', null, 404);
-    }
-
-    $status = strtolower(trim((string) $request->status));
-
-    DB::beginTransaction();
-
-    try {
-        $updateData = [
-            'status' => $status,
-            'updated_by' => $request->updated_by,
-            'updated_at' => now(),
-        ];
-
-        if ($status === 'withdrawn') {
-            $updateData['is_withdrawal'] = 1;
-            $updateData['is_active'] = 0;
+        if ($validator->fails()) {
+            return ApiResponse::error(
+                'Validation failed',
+                $validator->errors(),
+                422
+            );
         }
 
-        if (in_array($status, ['active', 'inprogress'], true)) {
-            $updateData['is_active'] = 1;
+        $application = DepositApplication::where('id', $application_id)->first();
+
+        if (!$application) {
+            return ApiResponse::error('Application not found', null, 404);
         }
 
-        if (in_array($status, ['rejected', 'closed', 'completed'], true)) {
-            $updateData['is_active'] = 0;
-        }
+        $status = strtolower(trim((string) $request->status));
 
-        $application->update($updateData);
+        DB::beginTransaction();
 
-        if ($status === 'approved') {
-            $applicationNo = trim((string) $application->application_no);
-            $memberId = trim((string) $application->member_id);
-            $isOneTimeDepositScheme = $this->isOneTimeDepositScheme((string) ($application->scheme_name ?? ''));
+        try {
+            $updateData = [
+                'status' => $status,
+                'updated_by' => $request->updated_by,
+                'updated_at' => now(),
+            ];
 
-            $accountManagementRecords = AccountManagement::where('member_id', $memberId)->get();
+            if ($status === 'withdrawn') {
+                $updateData['is_withdrawal'] = 1;
+                $updateData['is_active'] = 0;
+            }
 
-            foreach ($accountManagementRecords as $accountRecord) {
-                $applicationsJson = $accountRecord->applications_json;
+            if (in_array($status, ['active', 'inprogress'], true)) {
+                $updateData['is_active'] = 1;
+            }
 
-                if (is_string($applicationsJson)) {
-                    $decodedApplicationsJson = json_decode($applicationsJson, true);
-                    $applicationsJson = is_array($decodedApplicationsJson) ? $decodedApplicationsJson : [];
-                }
+            if (in_array($status, ['rejected', 'closed', 'completed'], true)) {
+                $updateData['is_active'] = 0;
+            }
 
-                if (!is_array($applicationsJson) || empty($applicationsJson)) {
-                    continue;
-                }
+            $application->update($updateData);
 
-                $hasMatch = false;
-                $matchedPaymentMode = null;
-                $matchedTitle = null;
+            if ($status === 'approved') {
+                $applicationNo = trim((string) $application->application_no);
+                $memberId = trim((string) $application->member_id);
+                $isOneTimeDepositScheme = $this->isOneTimeDepositScheme((string) ($application->scheme_name ?? ''));
 
-                foreach ($applicationsJson as $row) {
-                    if (!is_array($row)) {
+                $accountManagementRecords = AccountManagement::where('member_id', $memberId)->orderByDesc('id')->get();
+
+                foreach ($accountManagementRecords as $accountRecord) {
+                    $applicationsJson = $accountRecord->applications_json;
+
+                    if (is_string($applicationsJson)) {
+                        $decodedApplicationsJson = json_decode($applicationsJson, true);
+                        $applicationsJson = is_array($decodedApplicationsJson) ? $decodedApplicationsJson : [];
+                    }
+
+                    if (!is_array($applicationsJson) || empty($applicationsJson)) {
                         continue;
                     }
 
-                    $rowApplicationNo = $this->getApplicationNoFromJsonRow($row);
-                    $hasApplyPayment = $this->getBooleanValueFromJsonRow($row, [
-                        'apply payment',
-                        'apply_payment',
-                        'applyPayment',
-                    ]);
-                    $hasFirstPayment = $this->getBooleanValueFromJsonRow($row, [
-                        'first payment',
-                        'first_payment',
-                        'firstPayment',
-                    ]);
+                    $hasMatch = false;
+                    $matchedPaymentMode = null;
+                    $matchedTitle = null;
+                    $matchedAmount = null;
 
-                    if (trim((string) $rowApplicationNo) === $applicationNo && ($hasApplyPayment === true || $hasFirstPayment === true)) {
-                        $hasMatch = true;
-                        $matchedPaymentMode = $accountRecord->payment_mode ?? 'online';
-                        $matchedTitle = $this->getTitleFromJsonRow($row, (string) ($application->scheme_name ?? 'Deposit Application'));
+                    foreach ($applicationsJson as $rowIndex => $row) {
+                        if (!is_array($row)) {
+                            continue;
+                        }
+
+                        $rowApplicationNo = $this->getApplicationNoFromJsonRow($row);
+                        $hasApplyPayment = $this->getBooleanValueFromJsonRow($row, [
+                            'apply payment',
+                            'apply_payment',
+                            'applyPayment',
+                        ]);
+
+                        if (trim((string) $rowApplicationNo) === $applicationNo && $hasApplyPayment === true) {
+                            $hasMatch = true;
+                            $matchedPaymentMode = $accountRecord->payment_mode ?? 'online';
+                            $matchedTitle = $this->getTitleFromJsonRow($row, (string) ($application->scheme_name ?? 'Deposit Application'));
+                            $matchedAmount = (float) (
+                                $row['amount']
+                                ?? $row['paid_amount']
+                                ?? $row['total_amount']
+                                ?? $application->deposit_amount
+                                ?? 0
+                            );
+                            $applicationsJson[$rowIndex]['status'] = 'approved';
+                            $applicationsJson[$rowIndex]['payment status'] = 'approved';
+                            $applicationsJson[$rowIndex]['payment_status'] = 'approved';
+                            $applicationsJson[$rowIndex]['approved_by'] = $request->updated_by;
+                            $applicationsJson[$rowIndex]['approved_at'] = now()->toDateTimeString();
+                            $applicationsJson[$rowIndex]['updated_by'] = $request->updated_by;
+                            break;
+                        }
+                    }
+
+                    if ($hasMatch) {
+                        $accountRecord->update([
+                            'applications_json' => $this->formatAccountManagementApplicationsJsonForStorage($accountRecord, $applicationsJson),
+                            'status' => 'approved',
+                            'updated_by' => $request->updated_by,
+                            'updated_at' => now(),
+                        ]);
+
+                        if (!$isOneTimeDepositScheme) {
+                            $this->markFirstDepositInstallmentPaidForApplication(
+                                $applicationNo,
+                                (string) ($request->updated_by ?? '')
+                            );
+                        }
+
+                        $this->addDepositApplicationToTrialBalance(
+                            (string) $matchedTitle,
+                            $applicationNo,
+                            now(),
+                            (float) ($matchedAmount ?? $application->deposit_amount ?? 0),
+                            !empty($matchedPaymentMode) ? (string) $matchedPaymentMode : 'online',
+                            (string) ($request->updated_by ?? '')
+                        );
+
                         break;
                     }
                 }
-
-                if ($hasMatch) {
-                    $accountRecord->update([
-                        'status' => 'approved',
-                        'updated_by' => $request->updated_by,
-                        'updated_at' => now(),
-                    ]);
-
-                    if (!$isOneTimeDepositScheme) {
-                        $this->markFirstDepositInstallmentPaidForApplication(
-                            $applicationNo,
-                            (string) ($request->updated_by ?? '')
-                        );
-                    }
-
-                    $this->addDepositApplicationToTrialBalance(
-                        (string) $matchedTitle,
-                        $applicationNo,
-                        now(),
-                        (float) ($application->deposit_amount ?? 0),
-                        !empty($matchedPaymentMode) ? (string) $matchedPaymentMode : 'online',
-                        (string) ($request->updated_by ?? '')
-                    );
-
-                    break;
-                }
             }
+
+            DB::commit();
+
+            return ApiResponse::success(
+                'Application status updated successfully',
+                $application->fresh()
+            );
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return ApiResponse::error(
+                'Failed to update application status',
+                ['error' => $e->getMessage()],
+                500
+            );
         }
-
-        DB::commit();
-
-        return ApiResponse::success(
-            'Application status updated successfully',
-            $application->fresh()
-        );
-    } catch (\Throwable $e) {
-        DB::rollBack();
-
-        return ApiResponse::error(
-            'Failed to update application status',
-            ['error' => $e->getMessage()],
-            500
-        );
     }
-}
 
     public function updateApplicationStartDate(Request $request, $application_id)
     {
@@ -703,6 +711,7 @@ class DepositeController extends Controller
         }
 
         $updatedBy = 'admin';
+
         if (function_exists('auth') && auth()->check()) {
             $updatedBy = auth()->user()->full_name ?? auth()->user()->name ?? 'admin';
         }
@@ -717,6 +726,7 @@ class DepositeController extends Controller
 
             if (!$renewalApplication) {
                 DB::rollBack();
+
                 return ApiResponse::error('Renewal application not found.', [], 404);
             }
 
@@ -726,11 +736,13 @@ class DepositeController extends Controller
 
             if (!$oldApplication) {
                 DB::rollBack();
+
                 return ApiResponse::error('Old deposit application not found.', [], 404);
             }
 
             if (empty($oldApplication->end_date)) {
                 DB::rollBack();
+
                 return ApiResponse::error('Old application end date is missing.', [], 400);
             }
 
@@ -739,6 +751,7 @@ class DepositeController extends Controller
 
             if ($requestedTenureYears <= 0) {
                 DB::rollBack();
+
                 return ApiResponse::error('Requested tenure years is invalid.', [], 400);
             }
 
@@ -746,6 +759,7 @@ class DepositeController extends Controller
 
             if ($requestedDepositAmount <= 0) {
                 DB::rollBack();
+
                 return ApiResponse::error('Requested deposit amount is invalid.', [], 400);
             }
 
@@ -1011,6 +1025,18 @@ class DepositeController extends Controller
         return json_encode($installmentJson, JSON_UNESCAPED_UNICODE);
     }
 
+    private function formatAccountManagementApplicationsJsonForStorage(AccountManagement $accountManagement, array $applicationsJson)
+    {
+        $casts = method_exists($accountManagement, 'getCasts') ? $accountManagement->getCasts() : [];
+        $castType = isset($casts['applications_json']) ? strtolower((string) $casts['applications_json']) : '';
+
+        if (in_array($castType, ['array', 'json', 'object', 'collection'], true)) {
+            return $applicationsJson;
+        }
+
+        return json_encode($applicationsJson, JSON_UNESCAPED_UNICODE);
+    }
+
     private function addDepositApplicationToTrialBalance(
         string $title,
         string $applicationNo,
@@ -1036,85 +1062,123 @@ class DepositeController extends Controller
         $trialBalance = TrialBalance::where('financial_year', $financialYear)->first();
 
         if (!$trialBalance) {
-            throw new \Exception('Trial balance record not found for financial year ' . $financialYear);
+            $trialBalance = TrialBalance::create([
+                'financial_year' => $financialYear,
+                'opening_balance' => 0,
+                'cash_in_hand' => 0,
+                'bank_balance' => 0,
+                'closing_balance' => 0,
+                'debit_json' => [],
+                'credit_json' => [],
+                'created_by' => $createdBy,
+                'created_at' => now(),
+                'updated_by' => $createdBy,
+                'updated_at' => now(),
+            ]);
         }
 
-        $creditJson = $trialBalance->credit_json;
+        $debitJson = $trialBalance->debit_json;
 
-        if (!is_array($creditJson)) {
-            $decodedCreditJson = json_decode((string) $creditJson, true);
-            $creditJson = is_array($decodedCreditJson) ? $decodedCreditJson : [];
+        if (!is_array($debitJson)) {
+            $decodedDebitJson = json_decode((string) $debitJson, true);
+            $debitJson = is_array($decodedDebitJson) ? $decodedDebitJson : [];
         }
 
-        $nextId = 1;
+        $transactionDateText = $transactionDate->format('d-m-Y');
+        $formattedAmount = number_format($amount, 2, '.', '');
+        $entryExists = false;
 
-        if (!empty($creditJson)) {
-            $existingIds = [];
+        foreach ($debitJson as $debitItem) {
+            if (!is_array($debitItem)) {
+                continue;
+            }
 
-            foreach ($creditJson as $creditItem) {
-                if (is_array($creditItem) && isset($creditItem['id']) && is_numeric($creditItem['id'])) {
-                    $existingIds[] = (int) $creditItem['id'];
+            $existingApplicationNo = trim((string) ($debitItem['application_no'] ?? ''));
+            $existingDate = trim((string) ($debitItem['date'] ?? ''));
+            $existingTitle = strtolower(trim((string) ($debitItem['title'] ?? '')));
+            $existingAmount = number_format((float) ($debitItem['amount'] ?? 0), 2, '.', '');
+
+            if (
+                $existingApplicationNo === $applicationNo &&
+                $existingDate === $transactionDateText &&
+                $existingTitle === strtolower(trim($title)) &&
+                $existingAmount === $formattedAmount
+            ) {
+                $entryExists = true;
+                break;
+            }
+        }
+
+        if (!$entryExists) {
+            $nextId = 1;
+
+            if (!empty($debitJson)) {
+                $existingIds = [];
+
+                foreach ($debitJson as $debitItem) {
+                    if (is_array($debitItem) && isset($debitItem['id']) && is_numeric($debitItem['id'])) {
+                        $existingIds[] = (int) $debitItem['id'];
+                    }
+                }
+
+                if (!empty($existingIds)) {
+                    $nextId = max($existingIds) + 1;
                 }
             }
 
-            if (!empty($existingIds)) {
-                $nextId = max($existingIds) + 1;
-            }
+            $debitJson[] = [
+                'id' => $nextId,
+                'title' => $title,
+                'application_no' => $applicationNo,
+                'date' => $transactionDateText,
+                'amount' => (string) $amount,
+                'mode' => $mode,
+                'created_by' => $createdBy,
+            ];
         }
 
-        $creditJson[] = [
-            'id' => $nextId,
-            'title' => $title,
-            'application_no' => $applicationNo,
-            'date' => $transactionDate->format('d-m-Y'),
-            'amount' => (string) $amount,
-            'mode' => $mode,
-            'created_by' => $createdBy,
-        ];
-
         $trialBalance->update([
-            'credit_json' => $creditJson,
+            'debit_json' => $debitJson,
             'updated_by' => $createdBy,
             'updated_at' => now(),
         ]);
     }
 
     private function isOneTimeDepositScheme(?string $schemeName): bool
-{
-    $scheme = strtolower(trim((string) $schemeName));
+    {
+        $scheme = strtolower(trim((string) $schemeName));
 
-    if ($scheme === '') {
+        if ($scheme === '') {
+            return false;
+        }
+
+        $normalized = preg_replace('/[^a-z0-9]+/', ' ', $scheme);
+        $normalized = trim((string) preg_replace('/\s+/', ' ', (string) $normalized));
+
+        $oneTimeSchemes = [
+            'term deposit',
+            'term deposite',
+            'td',
+            'fixed deposit',
+            'fixed deposite',
+            'fd',
+            'dam duppat',
+            'dam dupat',
+            'damduppat',
+            'dham duppat',
+            'dham dupat',
+        ];
+
+        foreach ($oneTimeSchemes as $oneTimeScheme) {
+            if ($normalized === $oneTimeScheme) {
+                return true;
+            }
+
+            if (str_contains($normalized, $oneTimeScheme)) {
+                return true;
+            }
+        }
+
         return false;
     }
-
-    $normalized = preg_replace('/[^a-z0-9]+/', ' ', $scheme);
-    $normalized = trim((string) preg_replace('/\s+/', ' ', (string) $normalized));
-
-    $oneTimeSchemes = [
-        'term deposit',
-        'term deposite',
-        'td',
-        'fixed deposit',
-        'fixed deposite',
-        'fd',
-        'dam duppat',
-        'dam dupat',
-        'damduppat',
-        'dham duppat',
-        'dham dupat',
-    ];
-
-    foreach ($oneTimeSchemes as $oneTimeScheme) {
-        if ($normalized === $oneTimeScheme) {
-            return true;
-        }
-
-        if (str_contains($normalized, $oneTimeScheme)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 }

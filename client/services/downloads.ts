@@ -1,121 +1,118 @@
-import axios, { AxiosError } from "axios"
+import { AxiosError } from "axios"
+import { apiClient } from "@/lib/api-client"
 import type {
-  ApiErrorResponse,
-  DownloadCreatePayload,
-  DownloadDeleteResponse,
-  DownloadFormData,
-  DownloadListResponse,
-  DownloadQueryParams,
-  DownloadSingleResponse,
-  DownloadUpdatePayload,
+    ApiErrorResponse,
+    DownloadCreatePayload,
+    DownloadDeleteResponse,
+    DownloadFormData,
+    DownloadListResponse,
+    DownloadQueryParams,
+    DownloadSingleResponse,
+    DownloadUpdatePayload,
 } from "@/types/downloads"
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL 
-
-const downloadsApi = axios.create({
-  baseURL: API_BASE_URL,
-  withCredentials: true,
-  headers: {
-    Accept: "application/json",
-  },
-})
-
 const getErrorMessage = (error: unknown): string => {
-  const axiosError = error as AxiosError<ApiErrorResponse>
-  return (
-    axiosError.response?.data?.message ||
-    (typeof axiosError.response?.data?.errors === "string"
-      ? axiosError.response?.data?.errors
-      : "") ||
-    axiosError.message ||
-    "Something went wrong"
-  )
+    const axiosError = error as AxiosError<ApiErrorResponse>
+
+    return (
+        axiosError.response?.data?.message ||
+        (typeof axiosError.response?.data?.errors === "string"
+            ? axiosError.response.data.errors
+            : "") ||
+        axiosError.message ||
+        "Something went wrong"
+    )
 }
 
 const isBrowserFormData = (payload: unknown): payload is FormData => {
-  return typeof FormData !== "undefined" && payload instanceof FormData
+    return typeof FormData !== "undefined" && payload instanceof FormData
+}
+
+const getRequestHeaders = (payload: unknown) => {
+    if (isBrowserFormData(payload)) {
+        return {
+            Accept: "application/json",
+        }
+    }
+
+    return {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+    }
 }
 
 export const getAllDownloads = async (
-  params?: DownloadQueryParams
+    params?: DownloadQueryParams
 ): Promise<DownloadListResponse> => {
-  try {
-    const response = await downloadsApi.get<DownloadListResponse>(
-      "/api/v1/downloads/get-downloads",
-      {
-        params,
-      }
-    )
-    return response.data
-  } catch (error) {
-    throw new Error(getErrorMessage(error))
-  }
+    try {
+        const response = await apiClient.get<DownloadListResponse>(
+            "/api/v1/downloads/get-downloads",
+            {
+                params,
+            }
+        )
+
+        return response.data
+    } catch (error) {
+        throw new Error(getErrorMessage(error))
+    }
 }
 
 export const addDownload = async (
-  payload: DownloadCreatePayload
+    payload: DownloadCreatePayload
 ): Promise<DownloadSingleResponse> => {
-  try {
-    const response = await downloadsApi.post<DownloadSingleResponse>(
-      "/api/v1/downloads/add-downloads",
-      payload,
-      {
-        headers: isBrowserFormData(payload)
-          ? {
-              "Content-Type": "multipart/form-data",
+    try {
+        const response = await apiClient.post<DownloadSingleResponse>(
+            "/api/v1/downloads/add-downloads",
+            payload,
+            {
+                headers: getRequestHeaders(payload),
             }
-          : {
-              "Content-Type": "application/json",
-            },
-      }
-    )
-    return response.data
-  } catch (error) {
-    throw new Error(getErrorMessage(error))
-  }
+        )
+
+        return response.data
+    } catch (error) {
+        throw new Error(getErrorMessage(error))
+    }
 }
 
 export const updateDownload = async (
-  id: number | string,
-  payload: DownloadUpdatePayload
+    id: number | string,
+    payload: DownloadUpdatePayload
 ): Promise<DownloadSingleResponse> => {
-  try {
-    const response = await downloadsApi.post<DownloadSingleResponse>(
-      `/api/v1/downloads/update/${id}`,
-      payload,
-      {
-        headers: isBrowserFormData(payload)
-          ? {
-              "Content-Type": "multipart/form-data",
+    try {
+        const response = await apiClient.post<DownloadSingleResponse>(
+            `/api/v1/downloads/update/${id}`,
+            payload,
+            {
+                headers: getRequestHeaders(payload),
             }
-          : {
-              "Content-Type": "application/json",
-            },
-      }
-    )
-    return response.data
-  } catch (error) {
-    throw new Error(getErrorMessage(error))
-  }
+        )
+
+        return response.data
+    } catch (error) {
+        throw new Error(getErrorMessage(error))
+    }
 }
 
 export const deleteDownload = async (
-  id: number | string,
-  payload?: Pick<DownloadFormData, "deleted_by">
+    id: number | string,
+    payload?: Pick<DownloadFormData, "deleted_by">
 ): Promise<DownloadDeleteResponse> => {
-  try {
-    const response = await downloadsApi.delete<DownloadDeleteResponse>(
-      `/api/v1/downloads/delete/${id}`,
-      {
-        data: payload,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    )
-    return response.data
-  } catch (error) {
-    throw new Error(getErrorMessage(error))
-  }
+    try {
+        const response = await apiClient.delete<DownloadDeleteResponse>(
+            `/api/v1/downloads/delete/${id}`,
+            {
+                data: payload,
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+            }
+        )
+
+        return response.data
+    } catch (error) {
+        throw new Error(getErrorMessage(error))
+    }
 }

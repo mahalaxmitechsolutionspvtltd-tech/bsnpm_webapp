@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
 import SearchableSelect from '@/components/ui/searchable-select'
+import { useAuth } from '@/Context/AuthProvider'
 
 const initialForm: DataEntryFormData = {
     entry_type: 'income',
@@ -93,9 +94,11 @@ export default function AddDataEntryDialog({
     const [open, setOpen] = useState(false)
     const [datePopoverOpen, setDatePopoverOpen] = useState(false)
     const [form, setForm] = useState<DataEntryFormData>(initialForm)
+    const {user}=useAuth();
 
     useEffect(() => {
         if (!open) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setDatePopoverOpen(false)
         }
     }, [open])
@@ -146,6 +149,7 @@ export default function AddDataEntryDialog({
                     : Number(form.amount),
             reference: form.reference ? String(form.reference).trim() : null,
             description: form.description ? String(form.description).trim() : null,
+            created_by:user?.admin_name
         }
 
         await mutation.mutateAsync(payload)
@@ -153,7 +157,8 @@ export default function AddDataEntryDialog({
 
     const selectedType = String(form.entry_type || '').toLowerCase()
     const headOptions = selectedType === 'expense' ? EXPENSE_HEADS : INCOME_HEADS
-
+    
+    
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -174,7 +179,6 @@ export default function AddDataEntryDialog({
                                 Add income or expense details
                             </DialogDescription>
                         </div>
-
                         <DialogClose asChild>
                             <button
                                 type='button'

@@ -1,38 +1,49 @@
 "use client"
 
 import { useState } from "react"
-import { AdminLoginType, SanchalakLoginType } from "@/types/auth/loginTypes"
-import { adminLoginApi, sanchalakLoginApi } from "@/services/login-api"
+import { flushSync } from "react-dom"
 import axios from "axios"
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/providers/auth-provider"
+import { useAuth } from "@/Context/AuthProvider"
+import { adminLoginApi, sanchalakLoginApi } from "@/services/authApi"
+import { AdminLoginType, SanchalakLoginType } from "@/types/auth/loginTypes"
 
 export function useLogin() {
-
-    const { login } = useAuth();
+    const { login } = useAuth()
     const router = useRouter()
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState("")
 
     async function adminlogin({ adminId, password }: AdminLoginType) {
         try {
-
-
-
             setLoading(true)
             setError("")
-            const res = await adminLoginApi({ adminId, password });
 
-            if (res?.data.success) {
-                login(res.data.data)
-                router.push("/admin/dashboard")
-            } else {
-                setError(res.data.error || "Login failed")
+            const res = await adminLoginApi({ adminId, password })
+
+            if (res.data.success) {
+                flushSync(() => {
+                    login(res.data.data, res.data.user_type, res.data.access_token)
+                })
+
+                router.replace("/admin/dashboard")
+                router.refresh()
+                return
             }
-        } catch (error) {
-            if (axios.isAxiosError(error)) {
-                setError(error.response?.data.message)
+
+            setError(res.data.error || res.data.message || "Login failed")
+        } catch (loginError) {
+            if (axios.isAxiosError(loginError)) {
+                const message =
+                    typeof loginError.response?.data?.message === "string"
+                        ? loginError.response.data.message
+                        : "Login failed"
+
+                setError(message)
+                return
             }
+
+            setError("Login failed")
         } finally {
             setLoading(false)
         }
@@ -40,30 +51,43 @@ export function useLogin() {
 
     async function sanchalakLogin({ sanchalakId, password }: SanchalakLoginType) {
         try {
-
             setLoading(true)
             setError("")
 
-            const res = await sanchalakLoginApi({ sanchalakId, password });
+            const res = await sanchalakLoginApi({ sanchalakId, password })
 
-            if (res?.data.success) {
+            if (res.data.success) {
+                flushSync(() => {
+                    login(res.data.data, res.data.user_type, res.data.access_token)
+                })
 
-                router.push("/sanchalak/dashboard")
-            } else {
-                setError(res.data.error || "Login failed")
-                console.log(error)
+                router.replace("/sanchalak/dashboard")
+                router.refresh()
+                return
             }
-        } catch (error) {
-            if (axios.isAxiosError(error)) {
-                setError(error.response?.data)
-                console.log(error.response?.data);
 
+            setError(res.data.error || res.data.message || "Login failed")
+        } catch (loginError) {
+            if (axios.isAxiosError(loginError)) {
+                const message =
+                    typeof loginError.response?.data?.message === "string"
+                        ? loginError.response.data.message
+                        : "Login failed"
+
+                setError(message)
+                return
             }
+
+            setError("Login failed")
         } finally {
             setLoading(false)
         }
     }
 
-    return { adminlogin, sanchalakLogin, loading, error }
+    return {
+        adminlogin,
+        sanchalakLogin,
+        loading,
+        error,
+    }
 }
-

@@ -1,4 +1,4 @@
-import axios from "axios"
+import { apiClient } from "@/lib/api-client"
 import type {
     AddFilePayload,
     AddFileResponse,
@@ -14,17 +14,6 @@ import type {
     UpdateFolderPayload,
     UpdateFolderResponse,
 } from "@/types/galleryTypes"
-
-const URI = process.env.NEXT_PUBLIC_API_BASE_URL
-
-const jsonHeaders = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-}
-
-const multipartHeaders = {
-    Accept: "application/json",
-}
 
 const buildAddFileFormData = (payload: AddFilePayload): FormData => {
     const formData = new FormData()
@@ -83,27 +72,21 @@ const buildUpdateFileFormData = (payload: UpdateFilePayload): FormData => {
 }
 
 export const getGalleryHandler = async (): Promise<GetGalleryResponse> => {
-    const response = await axios.get<GetGalleryResponse>(
-        `${URI}/api/v1/gallery/get-data`,
-        {
-            headers: jsonHeaders,
-            withCredentials: true,
-        }
+    const response = await apiClient.get<GetGalleryResponse>(
+        "/api/v1/gallery/get-data"
     )
+
     return response.data
 }
 
 export const addFolderHandler = async (
     payload: AddFolderPayload
 ): Promise<AddFolderResponse> => {
-    const response = await axios.post<AddFolderResponse>(
-        `${URI}/api/v1/gallery/add-folder`,
-        payload,
-        {
-            headers: jsonHeaders,
-            withCredentials: true,
-        }
+    const response = await apiClient.post<AddFolderResponse>(
+        "/api/v1/gallery/add-folder",
+        payload
     )
+
     return response.data
 }
 
@@ -113,14 +96,16 @@ export const addFileHandler = async (
 ): Promise<AddFileResponse> => {
     const formData = buildAddFileFormData(payload)
 
-    const response = await axios.post<AddFileResponse>(
-        `${URI}/api/v1/gallery/folder/${folderId}/add-file`,
+    const response = await apiClient.post<AddFileResponse>(
+        `/api/v1/gallery/folder/${folderId}/add-file`,
         formData,
         {
-            headers: multipartHeaders,
-            withCredentials: true,
+            headers: {
+                Accept: "application/json",
+            },
         }
     )
+
     return response.data
 }
 
@@ -128,14 +113,11 @@ export const updateFolderHandler = async (
     folderId: number | string,
     payload: UpdateFolderPayload
 ): Promise<UpdateFolderResponse> => {
-    const response = await axios.patch<UpdateFolderResponse>(
-        `${URI}/api/v1/gallery/folder/${folderId}/update-folder`,
-        payload,
-        {
-            headers: jsonHeaders,
-            withCredentials: true,
-        }
+    const response = await apiClient.patch<UpdateFolderResponse>(
+        `/api/v1/gallery/folder/${folderId}/update-folder`,
+        payload
     )
+
     return response.data
 }
 
@@ -146,14 +128,16 @@ export const updateFileHandler = async (
 ): Promise<UpdateFileResponse> => {
     const formData = buildUpdateFileFormData(payload)
 
-    const response = await axios.post<UpdateFileResponse>(
-        `${URI}/api/v1/gallery/folder/${folderId}/file/${fileIndex}/update-file`,
+    const response = await apiClient.post<UpdateFileResponse>(
+        `/api/v1/gallery/folder/${folderId}/file/${fileIndex}/update-file`,
         formData,
         {
-            headers: multipartHeaders,
-            withCredentials: true,
+            headers: {
+                Accept: "application/json",
+            },
         }
     )
+
     return response.data
 }
 
@@ -161,14 +145,13 @@ export const deleteFolderHandler = async (
     folderId: number | string,
     payload?: DeleteFolderPayload
 ): Promise<DeleteFolderResponse> => {
-    const response = await axios.delete<DeleteFolderResponse>(
-        `${URI}/api/v1/gallery/folder/${folderId}/delete-folder`,
+    const response = await apiClient.delete<DeleteFolderResponse>(
+        `/api/v1/gallery/folder/${folderId}/delete-folder`,
         {
-            headers: jsonHeaders,
-            withCredentials: true,
             data: payload ?? {},
         }
     )
+
     return response.data
 }
 
@@ -177,13 +160,12 @@ export const deleteFileHandler = async (
     fileIndex: number | string,
     payload?: DeleteFilePayload
 ): Promise<DeleteFileResponse> => {
-    const response = await axios.delete<DeleteFileResponse>(
-        `${URI}/api/v1/gallery/folder/${folderId}/file/${fileIndex}/delete-file`,
+    const response = await apiClient.delete<DeleteFileResponse>(
+        `/api/v1/gallery/folder/${folderId}/file/${fileIndex}/delete-file`,
         {
-            headers: jsonHeaders,
-            withCredentials: true,
             data: payload ?? {},
         }
     )
+
     return response.data
 }

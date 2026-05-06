@@ -12,7 +12,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import {  BookOpenIcon, LayoutDashboard, Users, BanknoteArrowUp, ScrollText, ClockFading, Wallet, HandCoins, Images, ChartNoAxesCombined, TimerReset, Blocks, NotebookPen, Workflow, ReceiptIndianRupee, Upload } from "lucide-react"
+import {  BookOpenIcon, LayoutDashboard, Users, BanknoteArrowUp, ScrollText, ClockFading, Wallet, HandCoins, Images, ChartNoAxesCombined, TimerReset, Blocks, NotebookPen, Workflow, ReceiptIndianRupee, Upload, PiggyBank, UserStar } from "lucide-react"
 import { AuditReports } from "./nav-auditReport"
 import { SystemNav } from "./nav-system"
 
@@ -41,6 +41,11 @@ const data = {
       title: "Members Directory",
       url: "/admin/dashboard/members",
       icon: (<Users />)
+    },
+    {
+      title: "Sanchalaks",
+      url: "/admin/dashboard/sanchalaks",
+      icon: (<UserStar />)
     },
     {
       title: "Investments Protfolio",
@@ -114,6 +119,14 @@ const data = {
         },
 
       ],
+    },
+    {
+      name: "Reserve Funds",
+      url: "/admin/dashboard/reserve-funds",
+      icon: (
+        <PiggyBank
+        />
+      ),
     },
 
   ],
@@ -221,15 +234,13 @@ const data = {
     },
 
   ],
-
-
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader className="border-b ">
+      <SidebarHeader className="">
         <SidebarProfileHeader teams={data.teams} />
       </SidebarHeader>
 

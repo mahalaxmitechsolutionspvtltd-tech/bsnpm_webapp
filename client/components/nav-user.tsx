@@ -1,251 +1,242 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useQuery } from "@tanstack/react-query"
 import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
+    Avatar,
+    AvatarFallback,
+    AvatarImage,
 } from "@/components/ui/avatar"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  useSidebar,
+    SidebarMenu,
+    SidebarMenuButton,
+    SidebarMenuItem,
+    useSidebar,
 } from "@/components/ui/sidebar"
+import { useAuth } from "@/Context/AuthProvider"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog"
-import { useAuth } from "@/providers/auth-provider"
-import {
-  ChevronsUpDownIcon,
-  SparklesIcon,
-  BadgeCheckIcon,
-  CreditCardIcon,
-  BellIcon,
-  LogOutIcon,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
+    BellIcon,
+    ChevronsUpDownIcon,
+    Loader2,
+    LogOutIcon,
 } from "lucide-react"
-import { LogoutHandler } from "@/services/memberHandler"
 
-type LogoutResult = {
-  success: boolean
-  message: string
+type AdminUser = {
+    id: number
+    admin_id: string
+    admin_name: string
+    admin_email: string
+    admin_mobile: string
+    profile_photo: string | null
+    status: string
+}
+
+type SanchalakUser = {
+    id: number
+    sanchalak_id: string
+    sanchalak_name: string
+    sanchalak_email: string
+    sanchalak_mobile: string
+    profile_photo: string | null
+    status: string
+}
+
+type NavAuthUser = AdminUser | SanchalakUser | null
+
+type NavUserDetails = {
+    name: string
+    email: string
+    mobile: string
+    profilePhoto: string
+    role: string
+    fallback: string
+}
+
+const isAdminUser = (user: NavAuthUser): user is AdminUser => {
+    return Boolean(user && "admin_name" in user)
+}
+
+const isSanchalakUser = (user: NavAuthUser): user is SanchalakUser => {
+    return Boolean(user && "sanchalak_name" in user)
 }
 
 export function NavUser() {
-  const { user } = useAuth()
-  const { isMobile } = useSidebar()
-  const router = useRouter()
+    const { user, logout } = useAuth()
+    const { isMobile } = useSidebar()
+    const router = useRouter()
+    const [isLoggingOut, setIsLoggingOut] = useState(false)
 
-  const [openLogoutDialog, setOpenLogoutDialog] = useState(false)
-  const [logoutError, setLogoutError] = useState<string>("")
-  const [logoutSuccess, setLogoutSuccess] = useState(false)
+    const navUser = useMemo<NavUserDetails | null>(() => {
+        const authUser = user as NavAuthUser
 
-  const {
-    refetch: triggerLogout,
-    isFetching: isLoggingOut,
-  } = useQuery<LogoutResult>({
-    queryKey: ["member-logout"],
-    queryFn: async () => {
-      const response = await LogoutHandler()
-      return response ?? { success: true, message: "Logout successful" }
-    },
-    enabled: false,
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
+        if (isAdminUser(authUser)) {
+            const name = authUser.admin_name?.trim() ?? ""
+            const email = authUser.admin_email?.trim() ?? ""
+            const mobile = authUser.admin_mobile?.trim() ?? ""
+            const fallbackSource = name || email || mobile
 
-  const handleLogout = async () => {
-    setLogoutError("")
-    setLogoutSuccess(false)
-    setOpenLogoutDialog(true)
+            if (!fallbackSource) {
+                return null
+            }
 
-    try {
-      const result = await triggerLogout()
+            return {
+                name,
+                email,
+                mobile,
+                profilePhoto: authUser.profile_photo || "",
+                role: "Admin",
+                fallback: fallbackSource.slice(0, 1).toUpperCase(),
+            }
+        }
 
-      if (result.error) {
-        const message =
-          result.error instanceof Error
-            ? result.error.message
-            : "Logout failed. Please try again."
-        setLogoutError(message)
+        if (isSanchalakUser(authUser)) {
+            const name = authUser.sanchalak_name?.trim() ?? ""
+            const email = authUser.sanchalak_email?.trim() ?? ""
+            const mobile = authUser.sanchalak_mobile?.trim() ?? ""
+            const fallbackSource = name || email || mobile
 
-        setTimeout(() => {
-          setOpenLogoutDialog(false)
-          setLogoutError("")
-        }, 1800)
+            if (!fallbackSource) {
+                return null
+            }
 
-        return
-      }
+            return {
+                name,
+                email,
+                mobile,
+                profilePhoto: authUser.profile_photo || "",
+                role: "Sanchalak",
+                fallback: fallbackSource.slice(0, 1).toUpperCase(),
+            }
+        }
 
-      localStorage.removeItem("bsnpm_auth_user")
-      localStorage.removeItem("bsnpm_auth_token")
-      sessionStorage.removeItem("bsnpm_auth_user")
-      sessionStorage.removeItem("bsnpm_auth_token")
+        return null
+    }, [user])
 
-      setLogoutSuccess(true)
+    const handleLogout = async () => {
+        if (isLoggingOut) return
 
-      setTimeout(() => {
-        router.replace("/")
-        router.refresh()
-      }, 900)
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Logout failed. Please try again."
+        setIsLoggingOut(true)
 
-      setLogoutError(message)
-
-      setTimeout(() => {
-        setOpenLogoutDialog(false)
-        setLogoutError("")
-      }, 1800)
+        try {
+            await logout()
+            router.replace("/")
+            router.refresh()
+        } catch {
+            router.replace("/")
+            router.refresh()
+        } finally {
+            setIsLoggingOut(false)
+        }
     }
-  }
 
-  return (
-    <>
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <SidebarMenuButton
-                size="lg"
-                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-              >
-                <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src="" alt={user?.admin_name ?? "User"} />
-                  <AvatarFallback className="rounded-full capitalize text-2xl font-bold">
-                    {user?.admin_name?.slice(0, 1) ?? "U"}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">
-                    {user?.admin_name}
-                  </span>
-                  <span className="truncate text-xs">
-                    {user?.admin_email}
-                  </span>
-                </div>
-                <ChevronsUpDownIcon className="ml-auto size-4" />
-              </SidebarMenuButton>
-            </DropdownMenuTrigger>
+    if (!navUser) {
+        return (
+            <SidebarMenu>
+                <SidebarMenuItem>
+                    <SidebarMenuButton
+                        size="lg"
+                        onClick={handleLogout}
+                        disabled={isLoggingOut}
+                        className="justify-start"
+                    >
+                        {isLoggingOut ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <LogOutIcon className="h-4 w-4" />
+                        )}
+                        <span>{isLoggingOut ? "Logging out..." : "Log out"}</span>
+                    </SidebarMenuButton>
+                </SidebarMenuItem>
+            </SidebarMenu>
+        )
+    }
 
-            <DropdownMenuContent
-              className="w-(--radix-dropdown-menu-trigger-width) bg-card min-w-56 rounded-lg"
-              side={isMobile ? "bottom" : "right"}
-              align="end"
-              sideOffset={4}
-            >
-              <DropdownMenuLabel className="p-0 font-normal">
-                <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                  <Avatar className="h-8 w-8 rounded-lg">
-                    <AvatarImage src="" alt={user?.admin_name ?? "User"} />
-                    <AvatarFallback className="rounded-full capitalize text-2xl text-foreground font-bold">
-                      {user?.admin_name?.slice(0, 1) ?? "U"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium">
-                      {user?.admin_name}
-                    </span>
-                    <span className="truncate text-xs">
-                      {user?.admin_email}
-                    </span>
-                  </div>
-                </div>
-              </DropdownMenuLabel>
+    return (
+        <SidebarMenu>
+            <SidebarMenuItem>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <SidebarMenuButton
+                            size="lg"
+                            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                        >
+                            <Avatar className="h-8 w-8 rounded-lg">
+                                <AvatarImage src={navUser.profilePhoto} alt={navUser.name} />
+                                <AvatarFallback className="rounded-full text-lg font-bold uppercase">
+                                    {navUser.fallback}
+                                </AvatarFallback>
+                            </Avatar>
 
-              <DropdownMenuSeparator />
+                            <div className="grid flex-1 text-left text-sm leading-tight">
+                                <span className="truncate font-medium">
+                                    {navUser.name}
+                                </span>
+                                <span className="truncate text-xs text-muted-foreground">
+                                    {navUser.email || navUser.role}
+                                </span>
+                            </div>
 
-              <DropdownMenuGroup>
-              
-                <DropdownMenuItem>
-                  <BellIcon />
-                  Notifications
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
+                            <ChevronsUpDownIcon className="ml-auto size-4" />
+                        </SidebarMenuButton>
+                    </DropdownMenuTrigger>
 
-              <DropdownMenuSeparator />
+                    <DropdownMenuContent
+                        className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg bg-card"
+                        side={isMobile ? "bottom" : "right"}
+                        align="end"
+                        sideOffset={4}
+                    >
+                        <DropdownMenuLabel className="p-0 font-normal">
+                            <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+                                <Avatar className="h-8 w-8 rounded-lg">
+                                    <AvatarImage src={navUser.profilePhoto} alt={navUser.name} />
+                                    <AvatarFallback className="rounded-full text-lg font-bold uppercase text-foreground">
+                                        {navUser.fallback}
+                                    </AvatarFallback>
+                                </Avatar>
 
-              <DropdownMenuItem onClick={handleLogout} disabled={isLoggingOut}>
-                <LogOutIcon />
-                {isLoggingOut ? "Logging out..." : "Log out"}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </SidebarMenuItem>
-      </SidebarMenu>
+                                <div className="grid flex-1 text-left text-sm leading-tight">
+                                    <span className="truncate font-medium">
+                                        {navUser.name}
+                                    </span>
+                                    <span className="truncate text-xs text-muted-foreground">
+                                        {navUser.email || navUser.role}
+                                    </span>
+                                </div>
+                            </div>
+                        </DropdownMenuLabel>
 
-      <Dialog open={openLogoutDialog}>
-        <DialogContent className="sm:max-w-md [&>button]:hidden">
-          <DialogHeader>
-            <DialogTitle>
-              {logoutError
-                ? "Logout failed"
-                : logoutSuccess
-                  ? "Logout successful"
-                  : "Logging out"}
-            </DialogTitle>
-            <DialogDescription>
-              {logoutError
-                ? logoutError
-                : logoutSuccess
-                  ? "You have been logged out successfully. Redirecting to home page."
-                  : "Please wait while we securely log you out of your account."}
-            </DialogDescription>
-          </DialogHeader>
+                        <DropdownMenuSeparator />
 
-          {!logoutError && !logoutSuccess && (
-            <div className="flex flex-col items-center justify-center gap-4 py-6">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full border bg-muted">
-                <Loader2 className="h-8 w-8 animate-spin" />
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Logging out...
-              </p>
-            </div>
-          )}
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem>
+                                <BellIcon className="h-4 w-4" />
+                                Notifications
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
 
-          {logoutSuccess && !logoutError && (
-            <div className="flex flex-col items-center justify-center gap-4 py-6">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full border border-green-200 bg-green-50 text-green-600">
-                <CheckCircle2 className="h-8 w-8" />
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Redirecting...
-              </p>
-            </div>
-          )}
+                        <DropdownMenuSeparator />
 
-          {logoutError && (
-            <div className="py-4">
-              <div className="flex items-start gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{logoutError}</span>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </>
-  )
+                        <DropdownMenuItem onClick={handleLogout} disabled={isLoggingOut}>
+                            {isLoggingOut ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <LogOutIcon className="h-4 w-4" />
+                            )}
+                            {isLoggingOut ? "Logging out..." : "Log out"}
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </SidebarMenuItem>
+        </SidebarMenu>
+    )
 }

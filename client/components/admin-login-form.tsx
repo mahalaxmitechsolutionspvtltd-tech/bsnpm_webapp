@@ -35,6 +35,7 @@ export function AdminLoginForm({
   }
   useEffect(() => {
     if (error) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOpen(true)
 
       const timer = setTimeout(() => {
@@ -73,7 +74,7 @@ export function AdminLoginForm({
                   id="adminId"
                   type="text"
                   placeholder="m@example.com"
-                  className="h-12 rounded-lg"
+                  className="h-10 rounded-xl"
                   required
                   onChange={(e) => setAdminId(e.target.value)}
                 />
@@ -88,11 +89,11 @@ export function AdminLoginForm({
                   type={hide ? "password" : "text"}
                   required
                   placeholder="password@123"
-                  className={`h-12 rounded-lg `}
+                  className={`h-10 rounded-xl `}
                   onChange={(e) => setPassword(e.target.value)}
 
                 />
-                <Button variant={"ghost"} className="lg:max-w-10 right-0 bottom-1 absolute transition-all" type="button" onClick={() => setHide(!hide)}>
+                <Button variant={"ghost"} className="lg:max-w-10 sm:w-10 md:w-10 right-0 bottom-1 absolute transition-all" type="button" onClick={() => setHide(!hide)}>
                   {
                     hide ? <EyeClosed /> : <Eye />
                   }
@@ -100,7 +101,7 @@ export function AdminLoginForm({
 
               </Field>
               <Field>
-                <Button type="button" onClick={handleSubmit} size={"lg"} className="h-12  rounded-lg" >
+                <Button type="button" onClick={handleSubmit} size={"lg"} className="h-10  rounded-xl" >
                   {
                     loading ? <Spinner className="h-5 w-5" /> : " Login"
                   }

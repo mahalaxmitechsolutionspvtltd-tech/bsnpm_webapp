@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Figtree, DM_Sans } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
-import { AuthProvider } from "@/providers/auth-provider";
+import { AuthProvider } from "@/Context/AuthProvider";
 
 const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-sans' });
 

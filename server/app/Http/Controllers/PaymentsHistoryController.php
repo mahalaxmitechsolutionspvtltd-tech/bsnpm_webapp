@@ -7,19 +7,16 @@ use App\Models\AccountManagement;
 use App\Models\DepositInstallment;
 use App\Models\LoanEmi;
 use App\Models\TrialBalance;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use function Illuminate\Support\now;
 
 class PaymentsHistoryController extends Controller
 {
-    public function getPaymentHistory(Request $request)
+    public function getPaymentHistory(Request $request): JsonResponse
     {
         try {
-            $memberId = trim((string) $request->query('member_id', ''));
-            $applicationNo = trim((string) $request->query('application_no', ''));
-            $requestedStatus = strtolower(trim((string) $request->query('status', 'pending')));
-            $hasExplicitStatusFilter = $requestedStatus !== '';
             $page = (int) $request->query('page', 1);
             $perPage = (int) $request->query('per_page', 100);
 
@@ -27,51 +24,11 @@ class PaymentsHistoryController extends Controller
             $perPage = $perPage > 0 ? $perPage : 100;
             $perPage = min($perPage, 100);
 
-            $allowedStatuses = ['approved', 'pending', 'paid'];
+            $accountManagementRows = AccountManagement::query()
+                ->orderByDesc('id')
+                ->paginate($perPage, ['*'], 'page', $page);
 
-            if ($hasExplicitStatusFilter && !in_array($requestedStatus, $allowedStatuses, true)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invalid status filter',
-                    'errors' => [
-                        'status' => ['Allowed values are approved, pending, paid.'],
-                    ],
-                ], 422);
-            }
-
-            $query = AccountManagement::query()->orderByDesc('id');
-
-            if ($memberId !== '') {
-                $query->where('member_id', $memberId);
-            }
-
-            $accountManagementRows = $query->get();
-
-            if ($accountManagementRows->isEmpty()) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'No payment history found',
-                    'data' => [],
-                    'meta' => [
-                        'current_page' => $page,
-                        'per_page' => $perPage,
-                        'total' => 0,
-                        'last_page' => 1,
-                        'from' => null,
-                        'to' => null,
-                        'available_statuses' => ['approved', 'pending'],
-                        'active_status' => $requestedStatus,
-                        'default_filter' => 'application_pending_installment_paid_date_matched',
-                        'status_counts' => [
-                            'approved' => 0,
-                            'pending' => 0,
-                            'paid' => 0,
-                        ],
-                    ],
-                ]);
-            }
-
-            $buildProofFileUrl = function ($proofFile) {
+            $buildProofFileUrl = function ($proofFile): ?string {
                 if (empty($proofFile)) {
                     return null;
                 }
@@ -99,7 +56,7 @@ class PaymentsHistoryController extends Controller
                 return $baseUrl . '/payment_proofs/' . $fileName;
             };
 
-            $normalizeJsonArray = function ($value) {
+            $normalizeJsonArray = function ($value): array {
                 if (is_array($value)) {
                     return $value;
                 }
@@ -115,66 +72,35 @@ class PaymentsHistoryController extends Controller
                 return [];
             };
 
-            $normalizeStatus = function ($value) {
-                $status = strtolower(trim((string) ($value ?? 'pending')));
-
-                if ($status === '') {
-                    return 'pending';
-                }
-
-                return $status;
-            };
-
-            $normalizeAmount = function ($value) {
+            $normalizeAmount = function ($value): float {
                 if ($value === null || $value === '') {
                     return 0.00;
                 }
 
-                $amount = (float) str_replace(',', '', (string) $value);
-
-                return round($amount, 2);
+                return round((float) str_replace(',', '', (string) $value), 2);
             };
 
-            $formatAmount = function ($value) use ($normalizeAmount) {
+            $formatAmount = function ($value) use ($normalizeAmount): string {
                 return number_format($normalizeAmount($value), 2, '.', '');
             };
 
-            $normalizeDateKey = function ($value) {
-                if (empty($value)) {
-                    return null;
-                }
+            $normalizeStatus = function ($value): string {
+                $status = strtolower(trim((string) ($value ?? 'pending')));
 
-                $rawValue = trim((string) $value);
-
-                if ($rawValue === '') {
-                    return null;
-                }
-
-                try {
-                    if (preg_match('/^\d{2}-\d{2}-\d{4}$/', $rawValue)) {
-                        return \Carbon\Carbon::createFromFormat('d-m-Y', $rawValue)->format('Y-m-d');
-                    }
-
-                    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawValue)) {
-                        return \Carbon\Carbon::createFromFormat('Y-m-d', $rawValue)->format('Y-m-d');
-                    }
-
-                    return \Carbon\Carbon::parse($rawValue)->format('Y-m-d');
-                } catch (\Throwable $e) {
-                    return null;
-                }
+                return $status === '' ? 'pending' : $status;
             };
 
-            $getApplicationNo = function (array $applicationItem) {
+            $getApplicationNo = function (array $applicationItem): string {
                 return trim((string) (
                     $applicationItem['application no']
                     ?? $applicationItem['application_no']
                     ?? $applicationItem['app_no']
+                    ?? $applicationItem['applicationNo']
                     ?? ''
                 ));
             };
 
-            $getApplicationTitle = function (array $applicationItem) {
+            $getApplicationTitle = function (array $applicationItem): string {
                 return trim((string) (
                     $applicationItem['title']
                     ?? $applicationItem['detail']
@@ -184,7 +110,7 @@ class PaymentsHistoryController extends Controller
                 ));
             };
 
-            $getApplicationMemberName = function (array $applicationItem, $fallbackName) {
+            $getApplicationMemberName = function (array $applicationItem, $fallbackName): string {
                 return trim((string) (
                     $applicationItem['member name']
                     ?? $applicationItem['member_name']
@@ -193,7 +119,7 @@ class PaymentsHistoryController extends Controller
                 ));
             };
 
-            $getApplicationAmount = function (array $applicationItem, $fallbackAmount) use ($normalizeAmount) {
+            $getApplicationAmount = function (array $applicationItem, $fallbackAmount) use ($normalizeAmount): float {
                 return $normalizeAmount(
                     $applicationItem['amount']
                     ?? $applicationItem['paid_amount']
@@ -206,42 +132,8 @@ class PaymentsHistoryController extends Controller
                 return $applicationItem['tenure'] ?? null;
             };
 
-            $isJoiningShareEmergencyItem = function (string $title, string $applicationNo) {
-                $normalizedTitle = strtolower($title);
-                $normalizedApplicationNo = strtolower($applicationNo);
-
-                return $applicationNo === ''
-                    || str_contains($normalizedTitle, 'joining')
-                    || str_contains($normalizedTitle, 'share capital')
-                    || str_contains($normalizedTitle, 'emergency')
-                    || str_contains($normalizedApplicationNo, 'joining')
-                    || str_contains($normalizedApplicationNo, 'share')
-                    || str_contains($normalizedApplicationNo, 'emergency');
-            };
-
-            $findDepositInstallment = function (string $jsonApplicationNo) {
-                if ($jsonApplicationNo === '') {
-                    return null;
-                }
-
-                $depositInstallment = DepositInstallment::where('application_no', $jsonApplicationNo)->first();
-
-                if ($depositInstallment) {
-                    return $depositInstallment;
-                }
-
-                $normalizedApplicationNo = strtoupper(preg_replace('/\s+/', '', $jsonApplicationNo));
-
-                return DepositInstallment::get()->first(function ($row) use ($normalizedApplicationNo) {
-                    $rowApplicationNo = trim((string) $row->application_no);
-                    $normalizedRowApplicationNo = strtoupper(preg_replace('/\s+/', '', $rowApplicationNo));
-
-                    return $normalizedRowApplicationNo === $normalizedApplicationNo;
-                });
-            };
-
-            $makeProofPayload = function ($accountRow) use ($buildProofFileUrl) {
-                $proofFileUrl = $buildProofFileUrl($accountRow->proof_file);
+            $makeProofPayload = function ($accountRow) use ($buildProofFileUrl): array {
+                $proofFileUrl = $buildProofFileUrl($accountRow->proof_file ?? null);
                 $proofFileName = !empty($accountRow->proof_file)
                     ? basename(str_replace('\\', '/', (string) $accountRow->proof_file))
                     : null;
@@ -261,20 +153,75 @@ class PaymentsHistoryController extends Controller
                 ];
             };
 
-            $makeBaseRow = function ($accountRow, $amount, $status, $applicationNoValue, $applicationDetails, $sourceType, $applicationStatus, $installmentStatus) use ($makeProofPayload, $formatAmount, $normalizeStatus) {
-                $proofPayload = $makeProofPayload($accountRow);
-                $accountManagementStatus = $normalizeStatus($accountRow->status ?? 'pending');
+            $results = [];
 
-                return [
+            foreach ($accountManagementRows->items() as $accountRow) {
+                $applicationsJson = $normalizeJsonArray($accountRow->applications_json ?? null);
+                $proofPayload = $makeProofPayload($accountRow);
+                $accountStatus = $normalizeStatus($accountRow->status ?? 'pending');
+                $rowApplicationNo = null;
+                $sourceType = 'account_management';
+                $amount = $normalizeAmount($accountRow->total_amount ?? $accountRow->amount ?? 0);
+                $applicationDetails = [
+                    'title' => 'Payment',
+                    'member_name' => $accountRow->member_name,
+                    'amount' => $amount,
+                    'application_no' => null,
+                    'tenure' => null,
+                    'breakdown' => [],
+                ];
+
+                if (!empty($applicationsJson)) {
+                    $matchedApplications = [];
+
+                    foreach ($applicationsJson as $applicationItem) {
+                        if (!is_array($applicationItem)) {
+                            continue;
+                        }
+
+                        $matchedApplications[] = $applicationItem;
+                    }
+
+                    if (!empty($matchedApplications)) {
+                        $firstApplication = $matchedApplications[0];
+                        $rowApplicationNo = $getApplicationNo($firstApplication);
+                        $amount = $getApplicationAmount($firstApplication, $amount);
+                        $sourceType = $rowApplicationNo !== '' ? 'deposit' : 'member_fund';
+                        $breakdown = [];
+
+                        foreach ($matchedApplications as $matchedApplication) {
+                            $breakdown[] = [
+                                'title' => $getApplicationTitle($matchedApplication),
+                                'member_name' => $getApplicationMemberName($matchedApplication, $accountRow->member_name),
+                                'amount' => $getApplicationAmount($matchedApplication, 0),
+                                'application_no' => $getApplicationNo($matchedApplication) ?: null,
+                                'tenure' => $getApplicationTenure($matchedApplication),
+                            ];
+                        }
+
+                        $applicationDetails = [
+                            'title' => $getApplicationTitle($firstApplication),
+                            'member_name' => $getApplicationMemberName($firstApplication, $accountRow->member_name),
+                            'amount' => $amount,
+                            'application_no' => $rowApplicationNo ?: null,
+                            'tenure' => $getApplicationTenure($firstApplication),
+                            'breakdown' => $breakdown,
+                        ];
+                    }
+                }
+
+                $createdAt = $accountRow->created_at ? Carbon::parse($accountRow->created_at) : null;
+
+                $results[] = [
                     'id' => $accountRow->id,
                     'account_management_id' => $accountRow->id,
                     'member_id' => $accountRow->member_id,
                     'member_name' => $accountRow->member_name,
-                    'submitted_on' => $accountRow->created_at ? \Carbon\Carbon::parse($accountRow->created_at)->format('Y-m-d') : null,
-                    'submitted_time' => $accountRow->created_at ? \Carbon\Carbon::parse($accountRow->created_at)->format('H:i:s') : null,
+                    'submitted_on' => $createdAt ? $createdAt->format('Y-m-d') : null,
+                    'submitted_time' => $createdAt ? $createdAt->format('H:i:s') : null,
                     'date_of_payment' => $accountRow->date_of_payment,
                     'date_paid' => $accountRow->date_of_payment,
-                    'amount' => (float) $amount,
+                    'amount' => $amount,
                     'total_amount' => $formatAmount($amount),
                     'payment_mode' => $accountRow->payment_mode,
                     'proof_file' => $proofPayload['proof_file'],
@@ -282,327 +229,56 @@ class PaymentsHistoryController extends Controller
                     'proof_file_name' => $proofPayload['proof_file_name'],
                     'reference_trn' => $accountRow->reference_trn,
                     'remark' => $accountRow->remark,
-                    'status' => $status,
-                    'account_management_status' => $accountManagementStatus,
-                    'application_status' => $applicationStatus,
-                    'installment_status' => $installmentStatus,
+                    'status' => $accountStatus,
+                    'account_management_status' => $accountStatus,
+                    'application_status' => $accountStatus,
+                    'installment_status' => null,
                     'created_by' => $accountRow->created_by,
                     'created_at' => $accountRow->created_at,
                     'submitted_at' => $accountRow->created_at,
-                    'application_no' => $applicationNoValue,
+                    'application_no' => $rowApplicationNo ?: null,
                     'source_type' => $sourceType,
                     'application_details' => $applicationDetails,
                     'proof' => $proofPayload['proof'],
+                    'installment' => null,
                 ];
-            };
-
-            $allResults = [];
-
-            foreach ($accountManagementRows as $accountRow) {
-                $applicationsJson = $normalizeJsonArray($accountRow->applications_json);
-
-                if (empty($applicationsJson)) {
-                    continue;
-                }
-
-                $accountManagementStatus = $normalizeStatus($accountRow->status ?? 'pending');
-                $accountPaymentDateKey = $normalizeDateKey($accountRow->date_of_payment ?? $accountRow->created_at);
-                $joiningShareEmergencyItems = [];
-
-                foreach ($applicationsJson as $applicationItem) {
-                    if (!is_array($applicationItem)) {
-                        continue;
-                    }
-
-                    $jsonApplicationNo = $getApplicationNo($applicationItem);
-                    $title = $getApplicationTitle($applicationItem);
-
-                    if ($applicationNo !== '' && $jsonApplicationNo !== $applicationNo) {
-                        continue;
-                    }
-
-                    if ($isJoiningShareEmergencyItem($title, $jsonApplicationNo)) {
-                        $joiningShareEmergencyItems[] = $applicationItem;
-                        continue;
-                    }
-
-                    if ($jsonApplicationNo === '') {
-                        continue;
-                    }
-
-                    $depositInstallment = $findDepositInstallment($jsonApplicationNo);
-                    $installmentJson = $normalizeJsonArray($depositInstallment?->installment_json);
-                    $applicationStatus = $normalizeStatus(
-                        $applicationItem['payment status']
-                        ?? $applicationItem['payment_status']
-                        ?? $applicationItem['status']
-                        ?? $accountRow->status
-                        ?? 'pending'
-                    );
-                    $applicationAmount = $getApplicationAmount($applicationItem, $accountRow->total_amount);
-
-                    if (empty($installmentJson)) {
-                        if ($applicationStatus !== $requestedStatus) {
-                            continue;
-                        }
-
-                        $row = array_merge(
-                            $makeBaseRow(
-                                $accountRow,
-                                $applicationAmount,
-                                $applicationStatus,
-                                $jsonApplicationNo,
-                                [
-                                    'title' => $title,
-                                    'member_name' => $getApplicationMemberName($applicationItem, $accountRow->member_name),
-                                    'amount' => $applicationAmount,
-                                    'application_no' => $jsonApplicationNo,
-                                    'tenure' => $getApplicationTenure($applicationItem),
-                                ],
-                                'deposit',
-                                $applicationStatus,
-                                null
-                            ),
-                            [
-                                'installment' => null,
-                            ]
-                        );
-
-                        $uniqueKey = implode('|', [
-                            $row['member_id'] ?? '',
-                            $row['application_no'] ?? '',
-                            $row['account_management_id'] ?? '',
-                            $row['status'] ?? '',
-                            $row['total_amount'] ?? '',
-                        ]);
-
-                        $allResults[$uniqueKey] = $row;
-
-                        continue;
-                    }
-
-                    foreach ($installmentJson as $installmentItem) {
-                        if (!is_array($installmentItem)) {
-                            continue;
-                        }
-
-                        $installmentStatus = $normalizeStatus($installmentItem['status'] ?? 'pending');
-                        $installmentDateKey = $normalizeDateKey($installmentItem['date'] ?? null);
-
-                        if ($requestedStatus === 'pending') {
-                            if ($applicationStatus !== 'pending' || $installmentStatus !== 'paid') {
-                                continue;
-                            }
-
-                            if ($accountPaymentDateKey === null || $installmentDateKey === null || $accountPaymentDateKey !== $installmentDateKey) {
-                                continue;
-                            }
-                        }
-
-                        if ($requestedStatus === 'approved') {
-                            if ($applicationStatus !== 'approved' && $accountManagementStatus !== 'approved') {
-                                continue;
-                            }
-                        }
-
-                        if ($requestedStatus === 'paid') {
-                            if ($installmentStatus !== 'paid') {
-                                continue;
-                            }
-                        }
-
-                        $installmentAmount = $normalizeAmount($installmentItem['amount'] ?? $depositInstallment?->amount ?? $applicationAmount);
-
-                        $row = array_merge(
-                            $makeBaseRow(
-                                $accountRow,
-                                $installmentAmount,
-                                $applicationStatus,
-                                $jsonApplicationNo,
-                                [
-                                    'title' => $title,
-                                    'member_name' => $getApplicationMemberName($applicationItem, $accountRow->member_name),
-                                    'amount' => $installmentAmount,
-                                    'application_no' => $jsonApplicationNo,
-                                    'tenure' => $getApplicationTenure($applicationItem),
-                                ],
-                                'deposit',
-                                $applicationStatus,
-                                $installmentStatus
-                            ),
-                            [
-                                'installment' => [
-                                    'date' => $installmentItem['date'] ?? null,
-                                    'amount' => $formatAmount($installmentAmount),
-                                    'status' => $installmentStatus,
-                                    'updated_by' => $installmentItem['updated_by'] ?? $depositInstallment?->updated_by ?? null,
-                                ],
-                            ]
-                        );
-
-                        $uniqueKey = implode('|', [
-                            $row['member_id'] ?? '',
-                            $row['application_no'] ?? '',
-                            $installmentDateKey ?? '',
-                            $row['installment_status'] ?? '',
-                            $row['total_amount'] ?? '',
-                        ]);
-
-                        if (!isset($allResults[$uniqueKey])) {
-                            $allResults[$uniqueKey] = $row;
-                            continue;
-                        }
-
-                        $existingId = (int) ($allResults[$uniqueKey]['account_management_id'] ?? 0);
-                        $currentId = (int) ($row['account_management_id'] ?? 0);
-
-                        if ($currentId > $existingId) {
-                            $allResults[$uniqueKey] = $row;
-                        }
-                    }
-                }
-
-                if (!empty($joiningShareEmergencyItems) && $applicationNo === '') {
-                    $breakdown = [];
-                    $totalAmount = 0.00;
-                    $rowStatus = $accountManagementStatus;
-                    $titles = [];
-
-                    if ($rowStatus !== $requestedStatus) {
-                        continue;
-                    }
-
-                    foreach ($joiningShareEmergencyItems as $applicationItem) {
-                        if (!is_array($applicationItem)) {
-                            continue;
-                        }
-
-                        $title = $getApplicationTitle($applicationItem);
-                        $amount = $getApplicationAmount($applicationItem, 0);
-
-                        $titles[] = $title;
-                        $totalAmount += $amount;
-
-                        $breakdown[] = [
-                            'title' => $title,
-                            'member_name' => $getApplicationMemberName($applicationItem, $accountRow->member_name),
-                            'amount' => $amount,
-                            'application_no' => null,
-                            'tenure' => $getApplicationTenure($applicationItem),
-                        ];
-                    }
-
-                    if ($totalAmount <= 0) {
-                        $totalAmount = $normalizeAmount($accountRow->total_amount);
-                    }
-
-                    $row = array_merge(
-                        $makeBaseRow(
-                            $accountRow,
-                            $totalAmount,
-                            $rowStatus,
-                            null,
-                            [
-                                'title' => implode(' + ', array_values(array_filter($titles))),
-                                'member_name' => $accountRow->member_name,
-                                'amount' => $totalAmount,
-                                'application_no' => null,
-                                'tenure' => null,
-                                'breakdown' => array_values($breakdown),
-                            ],
-                            'member_fund',
-                            $rowStatus,
-                            null
-                        ),
-                        [
-                            'installment' => null,
-                        ]
-                    );
-
-                    $uniqueKey = implode('|', [
-                        $row['member_id'] ?? '',
-                        $row['source_type'] ?? '',
-                        $row['date_of_payment'] ?? '',
-                        $row['status'] ?? '',
-                        $row['total_amount'] ?? '',
-                        $row['reference_trn'] ?? '',
-                    ]);
-
-                    if (!isset($allResults[$uniqueKey])) {
-                        $allResults[$uniqueKey] = $row;
-                        continue;
-                    }
-
-                    $existingId = (int) ($allResults[$uniqueKey]['account_management_id'] ?? 0);
-                    $currentId = (int) ($row['account_management_id'] ?? 0);
-
-                    if ($currentId > $existingId) {
-                        $allResults[$uniqueKey] = $row;
-                    }
-                }
             }
 
             $statusCounts = [
+                'all' => $accountManagementRows->total(),
                 'approved' => 0,
                 'pending' => 0,
-                'paid' => 0,
             ];
 
-            foreach ($allResults as $result) {
-                $applicationResultStatus = strtolower(trim((string) ($result['application_status'] ?? '')));
-                $installmentResultStatus = strtolower(trim((string) ($result['installment_status'] ?? '')));
+            foreach ($results as $result) {
+                $resultStatus = strtolower(trim((string) ($result['account_management_status'] ?? 'pending')));
 
-                if (array_key_exists($applicationResultStatus, $statusCounts)) {
-                    $statusCounts[$applicationResultStatus]++;
-                }
-
-                if ($installmentResultStatus !== '' && array_key_exists($installmentResultStatus, $statusCounts)) {
-                    $statusCounts[$installmentResultStatus]++;
+                if (array_key_exists($resultStatus, $statusCounts)) {
+                    $statusCounts[$resultStatus]++;
                 }
             }
 
-            $results = array_values($allResults);
-
-            usort($results, function ($first, $second) {
-                $firstDate = strtotime((string) ($first['date_of_payment'] ?? $first['created_at'] ?? ''));
-                $secondDate = strtotime((string) ($second['date_of_payment'] ?? $second['created_at'] ?? ''));
-
-                if ($firstDate === $secondDate) {
-                    return (int) ($second['account_management_id'] ?? 0) <=> (int) ($first['account_management_id'] ?? 0);
-                }
-
-                return $secondDate <=> $firstDate;
-            });
-
-            $total = count($results);
-            $lastPage = max(1, (int) ceil($total / $perPage));
-            $page = min($page, $lastPage);
-            $offset = ($page - 1) * $perPage;
-            $paginatedResults = array_slice($results, $offset, $perPage);
-            $from = $total > 0 ? $offset + 1 : null;
-            $to = $total > 0 ? min($offset + count($paginatedResults), $total) : null;
-
             return response()->json([
                 'success' => true,
-                'message' => 'Deposit payment history fetched successfully',
-                'data' => array_values($paginatedResults),
+                'message' => 'Payment history fetched successfully',
+                'data' => array_values($results),
                 'meta' => [
-                    'current_page' => $page,
-                    'per_page' => $perPage,
-                    'total' => $total,
-                    'last_page' => $lastPage,
-                    'from' => $from,
-                    'to' => $to,
-                    'available_statuses' => ['approved', 'pending'],
-                    'active_status' => $requestedStatus,
-                    'default_filter' => 'application_pending_installment_paid_date_matched',
+                    'current_page' => $accountManagementRows->currentPage(),
+                    'per_page' => $accountManagementRows->perPage(),
+                    'total' => $accountManagementRows->total(),
+                    'last_page' => $accountManagementRows->lastPage(),
+                    'from' => $accountManagementRows->firstItem(),
+                    'to' => $accountManagementRows->lastItem(),
+                    'available_statuses' => ['All', 'Pending', 'Approved'],
+                    'active_status' => 'all',
+                    'default_filter' => 'all',
                     'status_counts' => $statusCounts,
                 ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to fetch deposit payment history',
+                'message' => 'Failed to fetch payment history',
                 'errors' => [
                     'error' => $e->getMessage(),
                 ],

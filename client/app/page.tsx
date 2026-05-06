@@ -1124,6 +1124,7 @@ export default function App() {
   useEffect(() => {
     const savedTheme = window.localStorage.getItem('bsnp-theme');
     if (savedTheme === 'dark') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsDark(true);
     }
   }, []);

@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 "use client"
 
 import { useMemo, useState } from "react"
@@ -5,7 +6,7 @@ import { CalendarDays, Eye, FileText, Pencil, Save, Upload, X } from "lucide-rea
 import { format } from "date-fns"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { useAuth } from "@/providers/auth-provider"
+import { useAuth } from "@/Context/AuthProvider"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -241,7 +242,7 @@ export default function ViewAgmNoticeDialog({
                         ? buildDateTimeString(formState.publishDate, formState.publishTime)
                         : null,
                 attachment_file: formState.attachmentFile,
-                updated_by: user?.admin_name ? String(user.admin_name) : undefined,
+                updated_by:user?.admin_name,
                 remove_attachment: formState.removeAttachment,
             }),
         onSuccess: async () => {

@@ -34,7 +34,9 @@ import ViewAndEdit from './ViewAndEdit'
 import { DataEntry } from '@/types/dataEntryTypes'
 import { formatApiDate } from '@/lib/formateApiDate'
 
+
 declare module '@tanstack/react-table' {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     interface ColumnMeta<TData extends RowData, TValue> {
         filterVariant?: 'text' | 'range' | 'select'
     }
@@ -76,6 +78,7 @@ const searchFilter: FilterFn<DataEntryTableRow> = (row, _columnId, filterValue) 
     )
 }
 
+
 const exactSelectFilter: FilterFn<DataEntryTableRow> = (row, columnId, filterValue) => {
     const selected = normalizeValue(filterValue)
 
@@ -85,11 +88,14 @@ const exactSelectFilter: FilterFn<DataEntryTableRow> = (row, columnId, filterVal
     return cellValue === selected
 }
 
+
 export default function Page() {
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
     const [sorting, setSorting] = useState<SortingState>([{ id: 'id', desc: true }])
     const [selectedRow, setSelectedRow] = useState<DataEntry | null>(null)
     const [dialogOpen, setDialogOpen] = useState(false)
+
+
 
     const { data: dataEntries = [], isLoading, isError } = useQuery({
         queryKey: ['data-entry'],
@@ -227,6 +233,7 @@ export default function Page() {
         []
     )
 
+    // eslint-disable-next-line react-hooks/incompatible-library
     const table = useReactTable({
         data: mappedData,
         columns,

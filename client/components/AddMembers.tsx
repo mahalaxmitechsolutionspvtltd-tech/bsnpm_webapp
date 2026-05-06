@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/alert"
 
 import { addMemberHandler } from "@/services/memberHandler"
-import { useAuth } from "@/providers/auth-provider"
+import { useAuth } from "@/Context/AuthProvider"
 import type { CreateMemberPayload } from "@/types/memberTypes"
 import { Spinner } from "./ui/spinner"
 

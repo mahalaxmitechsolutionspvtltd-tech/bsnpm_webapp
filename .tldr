@@ -221,9 +221,9 @@
 			"typeName": "binding"
 		},
 		{
-			"x": 777.1484577285985,
-			"y": 538.8485129637515,
-			"z": 0.4237604520024488,
+			"x": -7871.319922657068,
+			"y": 4481.033455987257,
+			"z": 0.7928881762581704,
 			"meta": {},
 			"id": "camera:page:page",
 			"typeName": "camera"
@@ -400,10 +400,8 @@
 		{
 			"editingShapeId": null,
 			"croppingShapeId": null,
-			"selectedShapeIds": [
-				"shape:6rVudvAt1qtfLJyQB6sNd"
-			],
-			"hoveredShapeId": "shape:6rVudvAt1qtfLJyQB6sNd",
+			"selectedShapeIds": [],
+			"hoveredShapeId": null,
 			"erasingShapeIds": [],
 			"hintingShapeIds": [],
 			"focusedGroupId": null,
@@ -695,6 +693,14 @@
 				"terminal": "end"
 			},
 			"typeName": "binding"
+		},
+		{
+			"name": "",
+			"color": "#F04F88",
+			"imageUrl": "",
+			"meta": {},
+			"id": "user:PZyaKiABeHXM4pky_tkmk",
+			"typeName": "user"
 		},
 		{
 			"x": 734.6678337266432,
@@ -1130,14 +1136,17 @@
 			"followingUserId": null,
 			"opacityForNextShape": 1,
 			"stylesForNextShape": {
-				"tldraw:dash": "dashed",
 				"tldraw:geo": "rectangle",
-				"tldraw:size": "s"
+				"tldraw:size": "m",
+				"tldraw:fill": "semi",
+				"tldraw:arrowKind": "elbow",
+				"tldraw:dash": "dashed",
+				"tldraw:color": "red"
 			},
 			"brush": null,
 			"scribbles": [],
 			"cursor": {
-				"type": "ns-resize",
+				"type": "default",
 				"rotation": 0
 			},
 			"isFocusMode": false,
@@ -1147,8 +1156,8 @@
 			"screenBounds": {
 				"x": 0,
 				"y": 0,
-				"w": 1438,
-				"h": 729
+				"w": 1499,
+				"h": 831
 			},
 			"insets": [
 				false,
@@ -1157,7 +1166,7 @@
 				false
 			],
 			"zoomBrush": null,
-			"isGridMode": false,
+			"isGridMode": true,
 			"isPenMode": false,
 			"chatMessage": "",
 			"isChatting": false,

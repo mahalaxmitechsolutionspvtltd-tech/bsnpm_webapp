@@ -37,9 +37,8 @@ export function SidebarProfileHeader({
            <img
               alt="logo"
               src="/bsnpm.png"
-              width={20}
-              height={20}
-              className="size-5 object-contain"
+              
+              className="size-10 object-contain rounded-full"
             />
          </div>
           <div className="grid flex-1 text-left text-sm leading-tight">

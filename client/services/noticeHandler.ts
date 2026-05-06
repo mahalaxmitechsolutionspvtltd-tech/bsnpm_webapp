@@ -1,19 +1,14 @@
-import { ApiValidationError, CreateNoticePayload, NoticeDeleteResponse, NoticeListParams, NoticeListResponse, NoticeSingleResponse, UpdateNoticePayload } from "@/types/noticesType"
+import { apiClient } from "@/lib/api-client"
+import {
+    ApiValidationError,
+    CreateNoticePayload,
+    NoticeDeleteResponse,
+    NoticeListParams,
+    NoticeListResponse,
+    NoticeSingleResponse,
+    UpdateNoticePayload,
+} from "@/types/noticesType"
 import axios, { AxiosError } from "axios"
-
-
-const API_BASE_URL =
-    (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
-    (typeof process !== "undefined" && process.env?.VITE_REACT_BACKEND_URI) ||
-    ""
-
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    withCredentials: true,
-    headers: {
-        Accept: "application/json",
-    },
-})
 
 function normalizeError(error: unknown): never {
     if (axios.isAxiosError(error)) {
@@ -21,6 +16,7 @@ function normalizeError(error: unknown): never {
         if (axiosError.response?.data) {
             throw axiosError.response.data
         }
+
         throw {
             success: false,
             message: axiosError.message || "Request failed",
@@ -69,9 +65,10 @@ export async function getNoticeHandler(
     params: NoticeListParams = {}
 ): Promise<NoticeListResponse> {
     try {
-        const response = await api.get<NoticeListResponse>("/api/v1/notices", {
+        const response = await apiClient.get<NoticeListResponse>("/api/v1/notices", {
             params,
         })
+
         return response.data
     } catch (error) {
         normalizeError(error)
@@ -86,15 +83,30 @@ export async function createNoticeHandler(
 
         if (hasFile) {
             const formData = appendFormData(new FormData(), payload)
-            const response = await api.post<NoticeSingleResponse>("/api/v1/notices", formData)
+            const response = await apiClient.post<NoticeSingleResponse>(
+                "/api/v1/notices",
+                formData,
+                {
+                    headers: {
+                        Accept: "application/json",
+                    },
+                }
+            )
+
             return response.data
         }
 
-        const response = await api.post<NoticeSingleResponse>("/api/v1/notices", payload, {
-            headers: {
-                "Content-Type": "application/json",
-            },
-        })
+        const response = await apiClient.post<NoticeSingleResponse>(
+            "/api/v1/notices",
+            payload,
+            {
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+            }
+        )
+
         return response.data
     } catch (error) {
         normalizeError(error)
@@ -111,15 +123,31 @@ export async function updateNoticeHandler(
         if (hasFile) {
             const formData = appendFormData(new FormData(), payload)
             formData.append("_method", "PUT")
-            const response = await api.post<NoticeSingleResponse>(`/api/v1/notices/${id}`, formData)
+
+            const response = await apiClient.post<NoticeSingleResponse>(
+                `/api/v1/notices/${id}`,
+                formData,
+                {
+                    headers: {
+                        Accept: "application/json",
+                    },
+                }
+            )
+
             return response.data
         }
 
-        const response = await api.put<NoticeSingleResponse>(`/api/v1/notices/${id}`, payload, {
-            headers: {
-                "Content-Type": "application/json",
-            },
-        })
+        const response = await apiClient.put<NoticeSingleResponse>(
+            `/api/v1/notices/${id}`,
+            payload,
+            {
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+            }
+        )
+
         return response.data
     } catch (error) {
         normalizeError(error)
@@ -130,7 +158,10 @@ export async function deleteHandler(
     id: number | string
 ): Promise<NoticeDeleteResponse> {
     try {
-        const response = await api.delete<NoticeDeleteResponse>(`/api/v1/notices/${id}`)
+        const response = await apiClient.delete<NoticeDeleteResponse>(
+            `/api/v1/notices/${id}`
+        )
+
         return response.data
     } catch (error) {
         normalizeError(error)

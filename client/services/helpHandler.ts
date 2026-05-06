@@ -1,91 +1,83 @@
-import axios, { AxiosError } from "axios"
+import { AxiosError } from "axios"
+import { apiClient } from "@/lib/api-client"
 import type {
-  ApiErrorResponse,
-  HelpItem,
-  HelpQueryParams,
-  HelpReplyPayload,
-  HelpListResponse,
-  HelpSingleResponse,
+    ApiErrorResponse,
+    HelpItem,
+    HelpQueryParams,
+    HelpReplyPayload,
+    HelpListResponse,
+    HelpSingleResponse,
 } from "@/types/helpTypes"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"
-
-const api = axios.create({
-  baseURL: `${API_BASE_URL.replace(/\/$/, "")}/api`,
-  headers: {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-  },
-  withCredentials: true,
-  timeout: 15000,
-})
-
 const normalizeError = (error: unknown): never => {
-  const axiosError = error as AxiosError<ApiErrorResponse>
+    const axiosError = error as AxiosError<ApiErrorResponse>
 
-  const message =
-    axiosError.response?.data?.message ||
-    axiosError.message ||
-    "Something went wrong while processing the request."
+    const message =
+        axiosError.response?.data?.message ||
+        axiosError.message ||
+        "Something went wrong while processing the request."
 
-  const enhancedError = new Error(message) as Error & {
-    status?: number
-    errors?: Record<string, string[]>
-  }
+    const enhancedError = new Error(message) as Error & {
+        status?: number
+        errors?: Record<string, string[]>
+    }
 
-  enhancedError.status = axiosError.response?.status
-  enhancedError.errors = axiosError.response?.data?.errors
+    enhancedError.status = axiosError.response?.status
+    enhancedError.errors = axiosError.response?.data?.errors
 
-  throw enhancedError
+    throw enhancedError
 }
 
 export const getHelpListHandler = async (
-  params?: HelpQueryParams
+    params?: HelpQueryParams
 ): Promise<HelpItem[]> => {
-  try {
-    const response = await api.get<HelpListResponse>("v1/help/getAll", {
-      params: params ?? {},
-    })
+    try {
+        const response = await apiClient.get<HelpListResponse>("/api/v1/help/getAll", {
+            params: params ?? {},
+        })
 
-    if (!response.data?.success) {
-      throw new Error(response.data?.message || "Failed to fetch help requests.")
+        if (!response.data?.success) {
+            throw new Error(response.data?.message || "Failed to fetch help requests.")
+        }
+
+        return Array.isArray(response.data.data) ? response.data.data : []
+    } catch (error) {
+        return normalizeError(error)
     }
-
-    return Array.isArray(response.data.data) ? response.data.data : []
-  } catch (error) {
-    return normalizeError(error)
-  }
 }
 
 export const getHelpByIdHandler = async (
-  id: number | string
+    id: number | string
 ): Promise<HelpItem> => {
-  try {
-    const response = await api.get<HelpSingleResponse>(`v1/help/${id}`)
+    try {
+        const response = await apiClient.get<HelpSingleResponse>(`/api/v1/help/${id}`)
 
-    if (!response.data?.success || !response.data?.data) {
-      throw new Error(response.data?.message || "Failed to fetch help request.")
+        if (!response.data?.success || !response.data?.data) {
+            throw new Error(response.data?.message || "Failed to fetch help request.")
+        }
+
+        return response.data.data
+    } catch (error) {
+        return normalizeError(error)
     }
-
-    return response.data.data
-  } catch (error) {
-    return normalizeError(error)
-  }
 }
 
 export const replyHelpHandler = async (
-  id: number | string,
-  payload: HelpReplyPayload
+    id: number | string,
+    payload: HelpReplyPayload
 ): Promise<HelpItem> => {
-  try {
-    const response = await api.post<HelpSingleResponse>(`v1/help/${id}/reply`, payload)
+    try {
+        const response = await apiClient.post<HelpSingleResponse>(
+            `/api/v1/help/${id}/reply`,
+            payload
+        )
 
-    if (!response.data?.success || !response.data?.data) {
-      throw new Error(response.data?.message || "Failed to reply help request.")
+        if (!response.data?.success || !response.data?.data) {
+            throw new Error(response.data?.message || "Failed to reply help request.")
+        }
+
+        return response.data.data
+    } catch (error) {
+        return normalizeError(error)
     }
-
-    return response.data.data
-  } catch (error) {
-    return normalizeError(error)
-  }
 }

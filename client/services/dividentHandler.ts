@@ -1,6 +1,4 @@
-import axios from "axios"
-
-const URI = process.env.NEXT_PUBLIC_API_BASE_URL
+import { apiClient } from "@/lib/api-client"
 
 export type DividentItem = {
     id: number
@@ -38,6 +36,7 @@ export type GetMemberShareCapitalResponse = {
     message: string
     data: MemberShareCapitalItem[]
 }
+
 export type CreateDividendPayload = {
     financial_year: string
     dividend_rate: number
@@ -48,20 +47,15 @@ export type CreateDividendPayload = {
 export type DividendResponse = {
     success: boolean
     message: string
-    data: any
+    data: unknown
     errors?: Record<string, string[]>
 }
 
-
-
-export const getAllDividentHandler = async (financialYear?: string): Promise<GetAllDividentResponse> => {
-    const response = await axios.get<GetAllDividentResponse>(`${URI}/api/v1/divident`, {
+export const getAllDividentHandler = async (
+    financialYear?: string
+): Promise<GetAllDividentResponse> => {
+    const response = await apiClient.get<GetAllDividentResponse>("/api/v1/divident", {
         params: financialYear ? { financial_year: financialYear } : {},
-        headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-        },
-        withCredentials: true,
     })
 
     return {
@@ -72,15 +66,8 @@ export const getAllDividentHandler = async (financialYear?: string): Promise<Get
 }
 
 export const getMemberShareCapitalHandler = async (): Promise<GetMemberShareCapitalResponse> => {
-    const response = await axios.get<GetMemberShareCapitalResponse>(
-        `${URI}/api/v1/divident/member-share-capital`,
-        {
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-            },
-            withCredentials: true,
-        }
+    const response = await apiClient.get<GetMemberShareCapitalResponse>(
+        "/api/v1/divident/member-share-capital"
     )
 
     return {
@@ -90,20 +77,12 @@ export const getMemberShareCapitalHandler = async (): Promise<GetMemberShareCapi
     }
 }
 
-
 export const createDividendHandler = async (
     payload: CreateDividendPayload
 ): Promise<DividendResponse> => {
-    const response = await axios.post<DividendResponse>(
-        `${URI}/api/v1/divident/create`,
-        payload,
-        {
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-            },
-            withCredentials: true,
-        }
+    const response = await apiClient.post<DividendResponse>(
+        "/api/v1/divident/create",
+        payload
     )
 
     return response.data
